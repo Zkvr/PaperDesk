@@ -1,23 +1,38 @@
-# PaperDesk
+<p align="center">
+  <img src="media/paperdesk-hero.png" alt="PaperDesk. Sticky notes that feel like paper. Three pastel sheets on a graphite desk, with a handwritten checklist on top." width="100%">
+</p>
 
-**A quiet desk for quick thoughts.**
+<p align="center">
+  <a href="https://github.com/Zkvr/PaperDesk/releases"><strong>Windows builds</strong></a>
+  &nbsp;·&nbsp; <a href="#a-desk-you-can-arrange">See how it works</a>
+  &nbsp;·&nbsp; <a href="#start-writing">Quick start</a>
+</p>
 
-PaperDesk is a local-first sticky-note app for Windows. Write directly on a sheet, collect related notes in a small stack, and bring them forward with a hotkey. The web companion works offline after its first load and can sync through a Supabase project you control.
+Keep a checklist beside your work, a stack for each project, and a blank sheet for your next thought. PaperDesk puts sticky notes on your Windows desktop. Everything stays on your computer, and you can start writing offline without an account.
 
-| On your desk | In the manager |
+## A desk you can arrange
+
+![PaperDesk’s Windows manager with pastel notes, desktop sections, and a wide checklist editor with an image attachment](media/manager.png)
+
+- **Peel, drop, stack.** Pull a sheet out of a stack by its lower edge. Drop it onto another note to make a new stack, then give the stack a name.
+- **Keep the whole thought.** Check off tasks as you go. Add a table, paste a screenshot, or drop an image into a note.
+- **Find it when you need it.** Bring notes forward with a shortcut, or search and sort them in the manager. Archive or trash several sheets at once.
+
+<details>
+  <summary><strong>Watch a sheet crumple</strong></summary>
+  <br>
+  <img src="media/paper-motion.gif" width="360" alt="The yellow note crumples, revealing the next sheet in the stack.">
+</details>
+
+## Start writing
+
+The preview runs on Windows x64 and follows your display language for English or Russian. The installer and portable ZIP both include .NET.
+
+| Choose | Open |
 | --- | --- |
-| Floating paper notes in six colors | Search, sort, and organize notes |
-| Compact stacks and a quick page picker | Select multiple notes to archive or move to Trash |
-| Checklists, lists, tables, and spoilers | Restore or permanently delete notes from Trash |
+| **Installer** | Run `PaperDesk-Setup-win-x64.exe` to add PaperDesk to Windows. |
+| **Portable ZIP** | Extract `PaperDesk-Portable-win-x64.zip` to a writable folder and open `PaperDesk.exe`. |
 
-## Windows preview
+Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. In the manager, **Ctrl+V** pastes an image into the selected note. Use **File → Export / backup** to save your notes and images as a JSON file you can move to another PC.
 
-Choose a Windows x64 installer or a portable ZIP. Both include the .NET runtime and follow the Windows display language for English and Russian. Use **Ctrl+Alt+N** to create a note and **Ctrl+Alt+Space** to bring notes forward. Startup and tray behavior can be configured in Settings.
-
-## Optional sync
-
-You can start writing without an account. For sync, connect a Supabase project you control and sign in to the same project on each device. JSON backup and import are built in.
-
-## Preview status
-
-This repository is private. Licensing will be decided before it opens.
+The first preview is being prepared. The repository is private while the release and license are being finalized.
