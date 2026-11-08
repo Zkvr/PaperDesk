@@ -15,7 +15,7 @@ Keep a checklist beside your work, a stack for each project, and a blank sheet f
 ![PaperDesk’s Windows manager with pastel notes, desktop sections, and a wide checklist editor with an image attachment](media/manager.png)
 
 - **Peel, drop, stack.** Pull a sheet out of a stack by its lower edge. Drop it onto another note to make a new stack, then give the stack a name.
-- **Keep the whole thought.** Check off tasks as you go. Add a table, paste a screenshot, or drop an image into a note.
+- **Keep the whole thought.** Check off tasks as you go. Paste a screenshot or drag an image from Chrome or Explorer. Move it around the note and drag its corner to resize it.
 - **Find it when you need it.** Bring notes forward with a shortcut, or search and sort them in the manager. Archive or trash several sheets at once.
 
 <details>
@@ -34,5 +34,9 @@ The preview runs on Windows x64 and follows your display language for English or
 | **Portable ZIP** | Extract `PaperDesk-Portable-win-x64.zip` to a writable folder and open `PaperDesk.exe`. |
 
 Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. In the manager, **Ctrl+V** pastes an image into the selected note. Use **File → Export / backup** to save your notes and images as a JSON file you can move to another PC.
+
+## Build from source
+
+On Windows, install the .NET SDK specified in `global.json` and run `dotnet build PaperDesk.sln -c Release`. To run the built app, use `dotnet run --project PaperDesk.Desktop -c Release`.
 
 The first preview is being prepared. The repository is private while the release and license are being finalized.

@@ -1,0 +1,62 @@
+<Window x:Class="PaperDesk.Desktop.Views.StickyWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:paper="clr-namespace:PaperDesk.Desktop.Controls" xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework" Title="{paper:T Text='Листик PaperDesk'}" WindowStyle="None" AllowsTransparency="True" Background="Transparent" Foreground="#302D29" paper:WindowMaterial.Enabled="False" ResizeMode="NoResize" MinWidth="{x:Static paper:StickyLayout.MinWidth}" MinHeight="{x:Static paper:StickyLayout.MinHeight}" ShowInTaskbar="False">
+  <Grid>
+  <Border x:Name="StackBack2" CornerRadius="10" Margin="28,34,5,5" Visibility="Collapsed" MouseLeftButtonDown="SecondStackClick">
+    <Border.RenderTransform><TransformGroup><ScaleTransform x:Name="BackScale2"/><RotateTransform x:Name="BackTilt2"/></TransformGroup></Border.RenderTransform>
+  </Border>
+  <Border x:Name="StackBack1" CornerRadius="10" Margin="21,26,9,12" Visibility="Collapsed" MouseLeftButtonDown="NextStackClick">
+    <Border.RenderTransform><TransformGroup><ScaleTransform x:Name="BackScale1"/><RotateTransform x:Name="BackTilt1"/></TransformGroup></Border.RenderTransform>
+  </Border>
+  <paper:PaperSurface x:Name="Paper" Margin="14" Fill="#F4E5AD" RenderTransformOrigin="0.5,0.28">
+    <paper:PaperSurface.RenderTransform><TransformGroup><ScaleTransform x:Name="PaperScale"/><RotateTransform x:Name="PaperTilt"/><TranslateTransform x:Name="PaperSlide"/></TransformGroup></paper:PaperSurface.RenderTransform>
+    <paper:PaperSurface.Effect><DropShadowEffect x:Name="PaperShadow" Color="Black" BlurRadius="20" ShadowDepth="7" Opacity="0.28"/></paper:PaperSurface.Effect>
+    <Grid>
+    <Border x:Name="DropOutline" BorderBrush="#9A6D29" BorderThickness="2" CornerRadius="10" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="2"/>
+    <Grid x:Name="SheetContent" Margin="18,6,18,18">
+      <Grid.RowDefinitions><RowDefinition Height="32"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <Grid x:Name="DragHandle" Background="Transparent">
+        <TextBlock Text="⠿" Foreground="#514B40" Opacity="0.7" VerticalAlignment="Center" FontSize="19" Cursor="SizeAll"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <StackPanel.Style>
+            <Style TargetType="StackPanel">
+              <Setter Property="Opacity" Value="0"/><Setter Property="IsHitTestVisible" Value="False"/>
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMouseOver,RelativeSource={RelativeSource AncestorType=Window}}" Value="True"><Setter Property="Opacity" Value="1"/><Setter Property="IsHitTestVisible" Value="True"/></DataTrigger>
+                <DataTrigger Binding="{Binding IsKeyboardFocusWithin,RelativeSource={RelativeSource AncestorType=Window}}" Value="True"><Setter Property="Opacity" Value="1"/><Setter Property="IsHitTestVisible" Value="True"/></DataTrigger>
+                <DataTrigger Binding="{Binding IsToolsOpen,RelativeSource={RelativeSource AncestorType=Window}}" Value="True"><Setter Property="Opacity" Value="1"/><Setter Property="IsHitTestVisible" Value="True"/></DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </StackPanel.Style>
+          <Button x:Name="PinButton" Style="{StaticResource PaperButton}" Content="&#xE718;" FontFamily="Segoe MDL2 Assets" FontSize="14" Click="PinClick" ToolTip="{paper:T Text='Закрепить поверх окон'}" AutomationProperties.Name="{paper:T Text='Закрепить поверх окон'}"/>
+          <Button Style="{StaticResource PaperButton}" Click="ColorClick" ToolTip="{paper:T Text='Цвет бумаги'}" AutomationProperties.Name="{paper:T Text='Цвет бумаги'}"><Ellipse x:Name="ColorDot" Width="14" Height="14" Fill="#DAB963" Stroke="{StaticResource PaperInk}" StrokeThickness="1.3"/></Button>
+          <Button Style="{StaticResource PaperButton}" Content="•••" Click="MenuClick" ToolTip="{paper:T Text='Оформление и действия'}" AutomationProperties.Name="{paper:T Text='Оформление и действия'}"/>
+          <Button x:Name="MinimizeButton" Style="{StaticResource PaperButton}" Content="−" FontSize="17" Click="MinimizeStackClick" ToolTip="{paper:T Text='Свернуть стопку'}" AutomationProperties.Name="{paper:T Text='Свернуть стопку'}"/>
+          <Button Style="{StaticResource PaperButton}" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#753C35" Click="TrashClick" ToolTip="{paper:T Text='Скомкать и отправить в корзину'}" AutomationProperties.Name="{paper:T Text='Скомкать и отправить в корзину'}"/>
+          <Button x:Name="HideButton" Style="{StaticResource PaperButton}" Click="HideClick" ToolTip="{paper:T Text='Скрыть листик'}" AutomationProperties.Name="{paper:T Text='Скрыть листик'}">
+            <Path Width="10" Height="10" Stretch="Uniform" Data="M1,1 L9,9 M9,1 L1,9" Stroke="{StaticResource PaperInk}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+          </Button>
+        </StackPanel>
+      </Grid>
+      <Grid Grid.Row="1">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBox x:Name="TitleBox" Style="{StaticResource PaperEditor}" Padding="1,5,1,10" FontFamily="Segoe Print" FontWeight="SemiBold" FontSize="21" TextChanged="TextEdited" ToolTip="{paper:T Text='Название заметки'}" AutomationProperties.Name="{paper:T Text='Название заметки'}"/>
+        <Button x:Name="ConflictWarning" Grid.Column="1" Style="{StaticResource PaperButton}" Content="⚠" Visibility="Collapsed" Click="ConflictClick" ToolTip="{paper:T Text='Конфликт версий — открыть менеджер'}" AutomationProperties.Name="{paper:T Text='Конфликт версий'}"/>
+        <Button x:Name="FormatButton" Grid.Column="2" Style="{StaticResource PaperButton}" Content="{paper:T Text='Формат ▾'}" Click="FormatClick" FontSize="11" Padding="4,1" MinHeight="24" VerticalAlignment="Top" Focusable="False" Visibility="{Binding IsEditing,ElementName=BodyBox,Converter={StaticResource BoolVisibility}}" ToolTip="{paper:T Text='Формат текста (Ctrl+Shift+F)'}" AutomationProperties.Name="{paper:T Text='Формат текста'}"/>
+      </Grid>
+      <paper:NoteBodyEditor x:Name="BodyBox" Grid.Row="2" TextChanged="TextEdited" AutomationProperties.Name="{paper:T Text='Текст заметки'}"/>
+      <paper:NotePictures x:Name="Pictures" Grid.Row="2"/>
+      <Grid x:Name="StackNavigation" Grid.Row="3" Visibility="Collapsed" Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition Width="*"/><ColumnDefinition Width="34"/></Grid.ColumnDefinitions><Button x:Name="PreviousSheet" Style="{StaticResource PaperButton}" Content="‹" FontSize="24" Padding="5,0" Click="PreviousStackClick" ToolTip="{paper:T Text='Предыдущий листик (Ctrl+PageUp)'}" AutomationProperties.Name="{paper:T Text='Предыдущий листик'}"/><Button x:Name="StackLabel" Grid.Column="1" Style="{StaticResource PaperButton}" FontSize="13" Padding="3,4" Click="StackMenuClick" ToolTip="{paper:T Text='Выбрать листик из стопки'}"/><Button x:Name="NextSheet" Style="{StaticResource PaperButton}" Grid.Column="2" Content="›" FontSize="24" Padding="5,0" Click="NextStackClick" ToolTip="{paper:T Text='Следующий листик (Ctrl+PageDown)'}" AutomationProperties.Name="{paper:T Text='Следующий листик'}"/></Grid>
+    </Grid>
+      <Border x:Name="PeelHandle" Height="12" Margin="12,0,36,0" VerticalAlignment="Bottom" Background="Transparent" Cursor="Hand" ToolTip="{paper:T Text='Потяните нижний край, чтобы оторвать листик'}" AutomationProperties.Name="{paper:T Text='Оторвать листик'}">
+        <Border Width="23" Height="2" CornerRadius="1" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{StaticResource PaperInk}" IsHitTestVisible="False">
+          <Border.Style><Style TargetType="Border"><Setter Property="Opacity" Value="0.30"/><Style.Triggers><DataTrigger Binding="{Binding IsMouseOver, ElementName=PeelHandle}" Value="True"><Setter Property="Opacity" Value="0.7"/></DataTrigger></Style.Triggers></Style></Border.Style>
+        </Border>
+      </Border>
+      <primitives:Thumb x:Name="ResizeCorner" Width="27" Height="27" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="SizeNWSE" DragDelta="ResizeCornerDrag" ToolTip="{paper:T Text='Потяните уголок, чтобы изменить размер листика'}" AutomationProperties.Name="{paper:T Text='Изменить размер листика'}">
+        <primitives:Thumb.RenderTransform><TranslateTransform x:Name="GripSlide"/></primitives:Thumb.RenderTransform>
+        <primitives:Thumb.Template><ControlTemplate TargetType="primitives:Thumb"><Grid Background="Transparent"><Path Data="M5,20 L20,5 M11,20 L20,11 M17,20 L20,17" Stroke="#655942" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid></ControlTemplate></primitives:Thumb.Template>
+      </primitives:Thumb>
+    </Grid>
+  </paper:PaperSurface>
+  <paper:PaperCrumple x:Name="Crumple"/>
+  </Grid>
+</Window>

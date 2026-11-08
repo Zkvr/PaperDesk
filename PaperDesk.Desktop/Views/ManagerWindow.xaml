@@ -1,0 +1,171 @@
+<Window x:Class="PaperDesk.Desktop.Views.ManagerWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework" xmlns:paper="clr-namespace:PaperDesk.Desktop.Controls" Style="{StaticResource {x:Type Window}}" Title="{paper:T Text='PaperDesk — заметки'}" Width="1220" Height="800" MinWidth="950" MinHeight="600" WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResize" Background="Transparent">
+  <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="54" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="14" UseAeroCaptionButtons="False"/></shell:WindowChrome.WindowChrome>
+  <Window.Resources>
+    <ItemsPanelTemplate x:Key="GridPanel"><UniformGrid Columns="{Binding DataContext.CardColumns, RelativeSource={RelativeSource AncestorType=ListBox}}" VerticalAlignment="Top"/></ItemsPanelTemplate>
+    <ItemsPanelTemplate x:Key="ListPanel"><StackPanel/></ItemsPanelTemplate>
+    <Style x:Key="DeskGroup" TargetType="GroupItem">
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="GroupItem">
+            <StackPanel Margin="0,0,0,12">
+              <DockPanel Margin="6,0,14,10">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                  <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                  <TextBlock Text="{Binding ItemCount}" FontSize="11" Foreground="{StaticResource MutedInk}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Border Height="1" Background="#24FFFFFF" Margin="12,0,0,0" VerticalAlignment="Center"/>
+              </DockPanel>
+              <ItemsPresenter/>
+            </StackPanel>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <GroupStyle x:Key="DeskGroupStyle" Panel="{StaticResource ListPanel}" ContainerStyle="{StaticResource DeskGroup}"/>
+  </Window.Resources>
+  <Border x:Name="RootFrame" Background="#CE1B1E24" BorderBrush="#22FFFFFF" BorderThickness="1" CornerRadius="14">
+    <Grid x:Name="Workspace" TextElement.Foreground="{StaticResource Ink}">
+      <Grid.RowDefinitions><RowDefinition Height="54"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="23,0,0,0">
+          <Image Source="/PaperDesk;component/Assets/mark.png" Width="32" Height="32" Margin="0,0,8,0"/>
+          <TextBlock Text="PaperDesk" FontFamily="Segoe Print" FontSize="19" VerticalAlignment="Center"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,9,10,0" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+          <Button Content="&#xE921;" Style="{StaticResource WindowButton}" Click="MinimizeClick" ToolTip="{paper:T Text='Свернуть'}" AutomationProperties.Name="{paper:T Text='Свернуть'}"/>
+          <Button Content="&#xE922;" Style="{StaticResource WindowButton}" Click="MaximizeClick" ToolTip="{paper:T Text='Развернуть / восстановить'}" AutomationProperties.Name="{paper:T Text='Развернуть или восстановить'}"/>
+          <Button Content="&#xE8BB;" Style="{StaticResource WindowButton}" Click="CloseClick" ToolTip="{paper:T Text='Закрыть в трей'}" AutomationProperties.Name="{paper:T Text='Закрыть менеджер'}"/>
+        </StackPanel>
+      </Grid>
+      <Grid Grid.Row="1">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="188"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="EditorColumn" Width="0"/></Grid.ColumnDefinitions>
+        <Border Background="#302F343D" CornerRadius="10" Margin="12,0,0,12">
+          <DockPanel LastChildFill="False" Margin="10,16,10,14">
+            <StackPanel DockPanel.Dock="Top">
+              <RadioButton x:Name="AllNotesSection" Style="{StaticResource NavItem}" GroupName="Sections" IsChecked="True" Tag="all" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Все заметки'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xE80A;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Text="{paper:T Text='Все заметки'}"/><TextBlock Grid.Column="2" Text="{Binding AllCount}" Opacity="0.7" FontSize="11"/></Grid></RadioButton>
+              <RadioButton Style="{StaticResource NavItem}" GroupName="Sections" Tag="visible" Click="FilterClick" AutomationProperties.Name="{paper:T Text='На рабочем столе'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='На столе'}"/><TextBlock Grid.Column="2" Text="{Binding VisibleCount}" Opacity="0.6" FontSize="11"/></Grid></RadioButton>
+              <RadioButton Style="{StaticResource NavItem}" GroupName="Sections" Tag="hidden" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Не на столе'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xED1A;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='Не на столе'}"/><TextBlock Grid.Column="2" Text="{Binding OffDeskCount}" Opacity="0.6" FontSize="11"/></Grid></RadioButton>
+              <RadioButton Style="{StaticResource NavItem}" GroupName="Sections" Tag="favorite" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Избранное'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xE734;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='Избранное'}"/><TextBlock Grid.Column="2" Text="{Binding FavoriteCount}" Opacity="0.6" FontSize="11"/></Grid></RadioButton>
+              <Border Height="1" Background="#0FFFFFFF" Margin="12,18,12,14"/>
+              <RadioButton Style="{StaticResource NavItem}" GroupName="Sections" Tag="archive" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Архив'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xE7B8;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='Архив'}"/><TextBlock Grid.Column="2" Text="{Binding ArchiveCount}" Opacity="0.6" FontSize="11"/></Grid></RadioButton>
+              <RadioButton Style="{StaticResource NavItem}" GroupName="Sections" Tag="trash" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Корзина'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='Корзина'}"/><TextBlock Grid.Column="2" Text="{Binding TrashCount}" Opacity="0.6" FontSize="11"/></Grid></RadioButton>
+              <RadioButton x:Name="ConflictsSection" Visibility="Collapsed" Style="{StaticResource NavItem}" GroupName="Sections" Tag="conflict" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Конфликты'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='Конфликты'}"/></Grid></RadioButton>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom">
+              <Button x:Name="DesktopStacksButton" Content="{paper:T Text='Стопки на столе ▾'}" Click="DesktopStacksClick" FontSize="12" HorizontalAlignment="Stretch" Margin="3,0,3,12" Padding="10,8" ToolTip="{paper:T Text='Показать выбранную стопку на рабочем столе'}"/>
+              <TextBlock Text="{Binding Account}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedInk}" Margin="12,0,8,7"/>
+              <Button Content="{paper:T Text='⚙  Параметры'}" Click="SettingsClick" FontSize="12" HorizontalAlignment="Left" Padding="10,8" ToolTip="{paper:T Text='Параметры, аккаунт и синхронизация'}"/>
+            </StackPanel>
+          </DockPanel>
+        </Border>
+        <Grid Grid.Column="1" Margin="24,16,22,16">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <DockPanel>
+            <Button x:Name="NewNoteButton" DockPanel.Dock="Right" Content="{paper:T Text='＋  Новый листик'}" Click="NewClick" Style="{StaticResource AccentButton}" Padding="12,7" FontSize="13" Margin="8,0,0,0" ToolTip="{paper:T Text='Новая заметка (Ctrl+N)'}"/>
+            <Button x:Name="SelectButton" DockPanel.Dock="Right" Content="{paper:T Text='Выбрать'}" Click="SelectModeClick" Padding="9,5" FontSize="12" Margin="6,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock x:Name="FilterTitle" Text="{paper:T Text='Все заметки'}" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="{Binding Count}" Foreground="{StaticResource MutedInk}" FontSize="13" VerticalAlignment="Center" Margin="11,3,0,0"/></StackPanel>
+          </DockPanel>
+          <Grid Grid.Row="1" Height="45" Margin="0,15,0,13">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="136"/><ColumnDefinition Width="74"/></Grid.ColumnDefinitions>
+            <Border Background="#462F343D" BorderBrush="#12FFFFFF" BorderThickness="1" CornerRadius="9" Margin="0,0,12,0">
+              <Grid><TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource MutedInk}" VerticalAlignment="Center" Margin="14,0,0,0"/><TextBox x:Name="SearchBox" TextChanged="SearchChanged" Background="Transparent" BorderThickness="0" Padding="0,10,12,10" Margin="39,0,0,0" ToolTip="{paper:T Text='Поиск по названию, тексту и #тегам'}" AutomationProperties.Name="{paper:T Text='Поиск заметок'}"/><TextBlock Text="{paper:T Text='Поиск по заметкам…'}" Foreground="{StaticResource MutedInk}" Margin="39,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text,ElementName=SearchBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
+            </Border>
+            <ComboBox x:Name="SortBox" Grid.Column="1" SelectedIndex="0" SelectionChanged="SortChanged" FontSize="11" Margin="0,0,10,0" AutomationProperties.Name="{paper:T Text='Сортировка заметок'}"><ComboBoxItem Content="{paper:T Text='По изменению'}"/><ComboBoxItem Content="{paper:T Text='По названию'}"/><ComboBoxItem Content="{paper:T Text='По созданию'}"/></ComboBox>
+            <Border Grid.Column="2" Background="#352F343D" CornerRadius="8"><StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center"><Button x:Name="GridViewButton" Content="&#xE80A;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource Accent}" Padding="9,7" Margin="0" Click="GridViewClick" ToolTip="{paper:T Text='Сетка'}" AutomationProperties.Name="{paper:T Text='Показать сеткой'}"/><Button x:Name="ListViewButton" Content="&#xE8FD;" FontFamily="Segoe MDL2 Assets" Padding="9,7" Margin="0" Click="ListViewClick" ToolTip="{paper:T Text='Список'}" AutomationProperties.Name="{paper:T Text='Показать списком'}"/></StackPanel></Border>
+          </Grid>
+          <Grid Grid.Row="2">
+            <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="12,0,12,0"><TextBlock x:Name="EmptyTitle" FontSize="21" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,9"/><TextBlock x:Name="EmptyHint" TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" FontSize="13"/></StackPanel>
+            <ListBox x:Name="Cards" Tag="grid" SelectionMode="Extended" ItemsSource="{Binding Notes}" ItemsPanel="{StaticResource GridPanel}" Background="Transparent" Foreground="{StaticResource Ink}" BorderThickness="0" SelectionChanged="CardSelected" SizeChanged="CardsSizeChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" Padding="0">
+              <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,12,16"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Selection" BorderBrush="Transparent" BorderThickness="2" CornerRadius="13" Padding="5"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="#35E8C88C"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="#B5E8C88C"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="{StaticResource Accent}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style></ListBox.ItemContainerStyle>
+              <ListBox.ItemTemplate><DataTemplate>
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                  <paper:PaperSurface Fill="{Binding Color}"><paper:PaperSurface.Style><Style TargetType="paper:PaperSurface"><Setter Property="Height" Value="145"/><Style.Triggers><DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="list"><Setter Property="Height" Value="87"/></DataTrigger></Style.Triggers></Style></paper:PaperSurface.Style><paper:PaperSurface.Effect><DropShadowEffect Color="Black" BlurRadius="11" ShadowDepth="4" Opacity="0.24"/></paper:PaperSurface.Effect>
+                    <Grid Margin="15,12,15,18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="{Binding Title}" FontFamily="Segoe Print" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource PaperInk}" TextTrimming="CharacterEllipsis" Margin="0,0,16,7"/><TextBlock Text="★" FontSize="13" Foreground="#645A46" HorizontalAlignment="Right" Margin="0,2,0,0" Visibility="{Binding Favorite,Converter={StaticResource BoolVisibility}}"/><TextBlock Grid.Row="1" Text="{Binding Preview}" Foreground="#514B40" FontSize="13" LineHeight="19" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Top"/></Grid>
+                  </paper:PaperSurface>
+                  <StackPanel Grid.Row="1" Margin="5,9,5,0">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding State}" FontSize="10" Foreground="{StaticResource MutedInk}"/>
+                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="{StaticResource MutedInk}"/>
+                    </DockPanel>
+                    <Border HorizontalAlignment="Left" CornerRadius="4" Background="#16E8C88C" Padding="6,2" Margin="0,6,0,0"
+                            Visibility="{Binding HasStack, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding StackName}">
+                      <DockPanel>
+                        <Path DockPanel.Dock="Left" Data="M1,1 L9,1 L9,6 L1,6 Z M3,8 L11,8 L11,3" Stroke="{StaticResource Accent}"
+                              StrokeThickness="1" StrokeLineJoin="Round" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding StackName}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Accent}"/>
+                      </DockPanel>
+                    </Border>
+                  </StackPanel>
+                </Grid>
+              </DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+          <StackPanel Grid.Row="3" Margin="0,8,0,0">
+            <WrapPanel x:Name="BulkBar" Visibility="Collapsed" Margin="0,0,0,5">
+              <TextBlock x:Name="SelectionCount" VerticalAlignment="Center" Margin="4,0,8,0" Foreground="{StaticResource MutedInk}"/>
+              <Button Content="{paper:T Text='Выбрать все'}" Click="SelectAllClick" Padding="7,5"/>
+              <Button x:Name="BulkStack" Content="{paper:T Text='В стопку…'}" Click="AssignStackClick" Padding="7,5"/>
+              <Button x:Name="BulkArchive" Content="{paper:T Text='В архив'}" Click="BulkArchiveClick" Padding="7,5"/>
+              <Button x:Name="BulkTrash" Content="{paper:T Text='В корзину'}" Click="BulkTrashClick" Padding="7,5"/>
+              <Button x:Name="BulkRestore" Content="{paper:T Text='Восстановить'}" Click="BulkRestoreClick" Padding="7,5"/>
+              <Button x:Name="BulkPurge" Content="{paper:T Text='Удалить навсегда'}" Click="PurgeClick" Foreground="#F3AAA5" Padding="7,5"/>
+            </WrapPanel>
+          <DockPanel>
+            <WrapPanel DockPanel.Dock="Right">
+              <Button x:Name="UndoButton" Content="{paper:T Text='Отменить'}" Click="UndoClick" FontSize="11" Padding="7,5" ToolTip="{paper:T Text='Отменить перенос в архив или корзину'}"/>
+              <Button Content="{paper:T Text='Файл ▾'}" Click="FileMenuClick" FontSize="11" Padding="7,5"/>
+            </WrapPanel>
+            <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{StaticResource MutedInk}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="2,0,8,0"/>
+          </DockPanel>
+          </StackPanel>
+        </Grid>
+        <Border Grid.Column="2" Background="#352F343D" CornerRadius="10" Margin="0,0,12,12">
+          <Grid Margin="16,12,16,15">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <DockPanel Margin="1,0,0,9">
+              <Button Content="×" DockPanel.Dock="Right" Click="CollapsePreviewClick" ToolTip="{paper:T Text='Закрыть предпросмотр'}" Padding="8,1" FontSize="20"/>
+              <Button x:Name="FavoriteButton" Content="☆" DockPanel.Dock="Right" Click="FavoriteClick" ToolTip="{paper:T Text='Избранное'}" AutomationProperties.Name="{paper:T Text='Избранное'}" Padding="8,1" FontSize="18"/>
+              <Button x:Name="FormatButton" DockPanel.Dock="Right" Content="{paper:T Text='Формат ▾'}" Click="FormatClick" FontSize="12" Padding="7,4" ToolTip="{paper:T Text='Списки, чекбоксы, таблицы и оформление текста'}" AutomationProperties.Name="{paper:T Text='Формат текста'}"/>
+              <Button x:Name="AddImagesButton" DockPanel.Dock="Right" Click="AddImagesClick" Content="&#xEB9F;" FontFamily="Segoe MDL2 Assets" FontSize="16" Padding="8,4" ToolTip="{paper:T Text='Добавить изображения · Ctrl+V или перетащите файл'}" AutomationProperties.Name="{paper:T Text='Добавить изображения'}"/>
+              <TextBlock x:Name="PreviewState" Foreground="{StaticResource MutedInk}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+            <paper:PaperSurface x:Name="EditorPaper" Grid.Row="1">
+              <Grid Margin="20,19,20,27">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid>
+                  <TextBox x:Name="EditTitle" Style="{StaticResource PaperEditor}" FontFamily="Segoe Print" FontSize="21" FontWeight="SemiBold" TextChanged="EditorChanged" AutomationProperties.Name="{paper:T Text='Название выбранной заметки'}"/>
+                  <TextBlock x:Name="TitlePlaceholder" Text="{paper:T Text='Заголовок'}" FontFamily="Segoe Print" FontSize="21" FontWeight="SemiBold" Foreground="#665848" Margin="1,1,0,0" IsHitTestVisible="False">
+                    <TextBlock.Style><Style TargetType="TextBlock">
+                      <Setter Property="Visibility" Value="Collapsed"/>
+                      <Style.Triggers><MultiDataTrigger><MultiDataTrigger.Conditions><Condition Binding="{Binding Text, ElementName=EditTitle}" Value=""/><Condition Binding="{Binding IsKeyboardFocused, ElementName=EditTitle}" Value="False"/></MultiDataTrigger.Conditions><Setter Property="Visibility" Value="Visible"/></MultiDataTrigger></Style.Triggers>
+                    </Style></TextBlock.Style>
+                  </TextBlock>
+                </Grid>
+                <Grid Grid.Row="1" Margin="0,13,0,0">
+                  <paper:NoteBodyEditor x:Name="EditBody" FontSize="16" TextChanged="EditorChanged" AutomationProperties.Name="{paper:T Text='Текст выбранной заметки'}"/>
+                  <TextBlock x:Name="BodyPlaceholder" Text="{paper:T Text='Текст заметки'}" FontSize="16" Foreground="#665848" Margin="2,2,0,0" IsHitTestVisible="False">
+                    <TextBlock.Style><Style TargetType="TextBlock">
+                      <Setter Property="Visibility" Value="Collapsed"/>
+                      <Style.Triggers><MultiDataTrigger><MultiDataTrigger.Conditions><Condition Binding="{Binding Text, ElementName=EditBody}" Value=""/><Condition Binding="{Binding IsEditing, ElementName=EditBody}" Value="False"/></MultiDataTrigger.Conditions><Setter Property="Visibility" Value="Visible"/></MultiDataTrigger></Style.Triggers>
+                    </Style></TextBlock.Style>
+                  </TextBlock>
+                  <paper:NotePictures x:Name="EditorPictures"/>
+                </Grid>
+              </Grid>
+            </paper:PaperSurface>
+            <paper:PaperCrumple x:Name="EditorCrumple" Grid.Row="1"/>
+            <StackPanel x:Name="EditorActions" Grid.Row="2" Margin="0,11,0,0">
+              <TextBlock x:Name="EditorHint" Foreground="{StaticResource MutedInk}" FontSize="11" TextWrapping="Wrap" Margin="3,0,0,6"/>
+              <DockPanel>
+                <Button x:Name="MoreButton" DockPanel.Dock="Right" Content="•••" Click="NoteMenuClick" ToolTip="{paper:T Text='Действия с заметкой'}" AutomationProperties.Name="{paper:T Text='Действия с заметкой'}"/>
+                <Button x:Name="ShowButton" Click="ShowClick" FontSize="12" ToolTip="{paper:T Text='Можно перетащить карточку на рабочий стол'}"/>
+                <Button x:Name="RestoreButton" Content="{paper:T Text='Восстановить'}" Click="RestoreClick" FontSize="12" Style="{StaticResource AccentButton}"/>
+              </DockPanel>
+              <Button x:Name="ConflictButton" Content="{paper:T Text='Сравнить версии'}" Click="ConflictClick" Visibility="Collapsed" Style="{StaticResource AccentButton}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

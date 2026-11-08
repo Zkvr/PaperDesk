@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <EmbeddedResource Include="strings.en.json" LogicalName="PaperDesk.strings.en.json" WithCulture="false"/>
+  </ItemGroup>
+</Project>

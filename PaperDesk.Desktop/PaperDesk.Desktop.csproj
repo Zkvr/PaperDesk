@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework><OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>PaperDesk</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>paperdesk.ico</ApplicationIcon>
+    <Version>0.3.0-preview.10</Version><Product>PaperDesk</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets/mark.png"/>
+    <InternalsVisibleTo Include="PaperDesk.Desktop.Tests" />
+    <ProjectReference Include="../PaperDesk.Storage/PaperDesk.Storage.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,17 @@
+.tools/
+data/
+artifacts/
+**/bin/
+**/obj/
+**/node_modules/
+paperdesk-web/dist/
+paperdesk-web/.env.local
+*.user
+work/
+*.dpapi
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+.vs/
