@@ -35,10 +35,17 @@ static class UiChecks
         boxes[0].IsChecked=true;boxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
         Require(store.Find(note.Id)!.Note.Body=="☑ В банк\n☑ В сервис\nОбычная строка","A checkbox click must persist the changed marker");
         Console.WriteLine("PASS actual WPF checkbox click persists through SQLite");
-        body.BeginEdit();Layout(body);var text=Descendants(body).OfType<TextBox>().Single();text.Text+="\n- [ ] Новая задача";body.EndEdit();Layout(body);
-        Require(Descendants(body).OfType<CheckBox>().Count()==3,"Finishing text edit must restore interactive tasks");
-        Require(store.Find(note.Id)!.Note.Body.EndsWith("- [ ] Новая задача"),"Raw edit must be saved too");
-        Console.WriteLine("PASS inline text editing restores interactive task controls");
+        body.BeginEdit();
+        Layout(body);
+        var field = Descendants(body).OfType<TextBox>().Single(x => x.Visibility == Visibility.Visible);
+        Require(field.Text == "Обычная строка" && Descendants(body).OfType<CheckBox>().Count() == 2 &&
+            Descendants(body).OfType<ScrollViewer>().Single(x => x.Content is StackPanel).Visibility == Visibility.Visible,
+            $"Editing a paragraph must keep the real checkboxes on screen (active text: {field.Text})");
+        field.Text = "Исправленная строка";
+        body.EndEdit();
+        Layout(body);
+        Require(store.Find(note.Id)!.Note.Body.EndsWith("Исправленная строка"), "A visual paragraph edit must save normally");
+        Console.WriteLine("PASS visual paragraph editing keeps interactive task controls visible");
         body.FontSize = 12;
         Layout(body);
         var smallCheck = Descendants(body).OfType<CheckBox>().First().ActualWidth;
@@ -56,8 +63,41 @@ static class UiChecks
             RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = editableLabel
         });
         Require(body.IsEditing && body.CaretIndex < body.Text.Length, "A single click on a task label must start writing on that line");
+        var taskField = Descendants(body).OfType<TextBox>().Single(x => x.Visibility == Visibility.Visible);
+        Require(taskField.Text == "В банк", "The task field must not show its checkbox markup");
+        taskField.Text = "В офис";
+        Require(body.Text.StartsWith("☑ В офис", StringComparison.Ordinal), "Editing the task label must preserve checked state");
         body.EndEdit();
         Console.WriteLine("PASS single click on note text starts inline editing");
+        var blocks = new NoteBodyEditor { Width = 400, Height = 270, FontSize = 17,
+            Text = "- [ ] Задача\n| День | План |\n| --- | --- |\n| Пн | Поездка |\n:::spoiler Детали\nТекст внутри\n:::" };
+        Layout(blocks);
+        ClickBlock("План").Text = "Маршрут";
+        Require(blocks.Text.Contains("| День | Маршрут |", StringComparison.Ordinal) &&
+            Descendants(blocks).OfType<CheckBox>().Single().Visibility == Visibility.Visible, "A table cell must save without exposing its pipe delimiters");
+        Layout(blocks);
+        SaveSized(blocks, Path.Combine(folder, "visual-table-editing.png"));
+        blocks.EndEdit();
+        Layout(blocks);
+        ClickBlock("Детали").Text = "Что взять";
+        Require(blocks.Text.Contains(":::spoiler Что взять\nТекст внутри\n:::", StringComparison.Ordinal) &&
+            Descendants(blocks).OfType<Button>().Any(b => Equals(b.Content, "▸") && b.Visibility == Visibility.Visible),
+            "Editing the spoiler title must leave a real disclosure and preserve its contents");
+        blocks.EndEdit();
+        Console.WriteLine("PASS visual table and spoiler fields preserve the structured note while typing");
+
+        TextBox ClickBlock(string label)
+        {
+            var caption = Descendants(blocks).OfType<TextBlock>().Single(c => c.Text == label && c.Visibility == Visibility.Visible);
+            var scroll = Descendants(blocks).OfType<ScrollViewer>().Single(v => v.Content is StackPanel);
+            scroll.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = caption
+            });
+            var input = Descendants(blocks).OfType<TextBox>().Single(x => x.Visibility == Visibility.Visible);
+            Require(input.Text == label, "The active field must display only the visible label");
+            return input;
+        }
         var ink=((SolidColorBrush)app.FindResource("Ink")).Color;
         Require(Contrast(ink,Color.FromRgb(27,30,36))>10,"Dark theme foreground must be readable");
         foreach(var (_,color) in PaperPalette.Colors)Require(Contrast(Color.FromRgb(48,45,41),PaperPalette.Brush(color).Color)>8,"Paper text contrast");
@@ -446,13 +486,45 @@ static class UiChecks
             var remove = frame.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Удалить изображение"));
             remove.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Require(desk.Store.ImageIds(note.Id).Count == 2, "Removing one picture must leave the other pictures and note");
+
+            var body = (NoteBodyEditor)manager.FindName("EditBody");
+            body.Text = "Список дел\n" + string.Join(' ', Enumerable.Repeat("Длинный абзац с задачами на неделю.", 12));
+            manager.UpdateLayout();
+            var editableId = desk.Store.ImageIds(note.Id)[0];
+            ChooseMode(pictures.Children.OfType<Border>().Single(b => Equals(b.Tag, editableId)), "В тексте");
+            var inline = Descendants(body).OfType<Border>().Single(b => Equals(b.Tag, editableId));
+            Require(inline.Parent is Grid { ColumnDefinitions.Count: 0 } && !pictures.Children.Contains(inline),
+                "An inline image must sit in a scrolling row of the body");
+            ChooseMode(inline, "Обтекание");
+            var wrap = desk.Store.ImageLayouts(note.Id).Single(p => p.Id == editableId).Layout!;
+            desk.Store.SaveImageLayout(note.Id, editableId, wrap with { Anchor = 1, X = .1, Width = .42 });
+            pictures.Bind(desk.Store, note.Id, true);
+            manager.UpdateLayout();
+            var wrapped = Descendants(body).OfType<Border>().Single(b => Equals(b.Tag, editableId));
+            Require(wrapped.Parent is Grid { ColumnDefinitions.Count: 2 } region &&
+                region.Children.OfType<StackPanel>().Single().Children.Count > 0, "Text must use rows beside a wrapped image");
+            SaveSized((FrameworkElement)manager.Content, Path.Combine(folder, "wrapped-image.png"));
+            body.Text = "Новая строка\n" + body.Text;
+            Require(desk.Store.ImageLayouts(note.Id).Single(p => p.Id == editableId).Layout is { Anchor: 2, Mode: ImageTextMode.Wrap },
+                "A wrapped image must follow its paragraph when a line is inserted earlier");
+            ChooseMode(wrapped, "Поверх текста");
+            Require(pictures.Children.OfType<Border>().Any(b => Equals(b.Tag, editableId)),
+                "An overlay image must return to the freely positioned canvas");
             desk.ChangeState(note.Id, "trash", animateSticky: false);
             desk.PurgeTrash([note.Id]).GetAwaiter().GetResult();
             Require(reopened.Find(note.Id) == null && reopened.ImageIds(note.Id).Count == 0,
                 "Permanent deletion must remove all local images with the note");
+
+            void ChooseMode(Border picture, string label)
+            {
+                var placement = picture.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Размещение изображения"));
+                placement.Items.OfType<MenuItem>().Single(item => Equals(item.Header, label))
+                    .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                manager.UpdateLayout();
+            }
         }
         finally { manager.Close(); }
-        Console.WriteLine("PASS bitmap paste, local and browser file drop, move and resize, preview, JSON backup and deletion");
+        Console.WriteLine("PASS image drop, move and resize, text placement modes, preview, JSON backup and deletion");
     }
 
     private static void CheckDesktopStacks(string folder)
@@ -612,15 +684,15 @@ static class UiChecks
             menu.IsOpen = false;
             item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         }
-        static void SaveSized(FrameworkElement element, string path)
-        {
-            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth), (int)Math.Ceiling(element.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(element);
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using var file = File.Create(path);
-            encoder.Save(file);
-        }
+    }
+    static void SaveSized(FrameworkElement element, string path)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth), (int)Math.Ceiling(element.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
     }
     private static void CheckPeelAndDrop(string folder)
     {

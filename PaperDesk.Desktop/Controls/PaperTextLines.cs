@@ -27,7 +27,10 @@ internal sealed class PaperTextLines(Typeface typeface, double fontSize, double 
         return Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, text.Length);
     }
 
-    public IEnumerable<(int Offset, string Text)> Wrap(TextFormatter formatter, string text, double width, PaperInline? inline = null)
+    public IEnumerable<(int Offset, string Text)> Wrap(TextFormatter formatter, string text, double width, PaperInline? inline = null) =>
+        Wrap(formatter, text, () => width, inline);
+
+    public IEnumerable<(int Offset, string Text)> Wrap(TextFormatter formatter, string text, Func<double> width, PaperInline? inline = null)
     {
         if (text.Length == 0)
         {
@@ -41,7 +44,7 @@ internal sealed class PaperTextLines(Typeface typeface, double fontSize, double 
         {
             for (var offset = 0; offset < text.Length;)
             {
-                using var line = formatter.FormatLine(source, offset, Math.Max(1, width), this, previous);
+                using var line = formatter.FormatLine(source, offset, Math.Max(1, width()), this, previous);
                 previous?.Dispose();
                 previous = line.GetTextLineBreak();
                 var length = Math.Min(text.Length - offset, line.Length);

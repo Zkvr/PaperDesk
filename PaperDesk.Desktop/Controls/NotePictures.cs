@@ -28,6 +28,8 @@ public sealed class NotePictures : Canvas
     internal void ConnectDrop(FrameworkElement paper, NoteBodyEditor editor)
     {
         body = editor;
+        body.ConnectPictures(this);
+        editor.IsEditingChanged += (_, _) => Visibility = editor.EditingPlainText ? Visibility.Hidden : Visibility.Visible;
         paper.AllowDrop = true;
         paper.PreviewDragOver += (_, e) =>
         {
@@ -61,7 +63,7 @@ public sealed class NotePictures : Canvas
         saved = nextPictures;
         Children.Clear();
         pictures.Clear();
-        if (nextId is not Guid note) return;
+        if (nextId is not Guid note) { body?.ReflowPictures(); return; }
         foreach (var (image, position) in saved)
         {
             if (nextStore.ReadImage(note, image) is not { } png || Decode(png, 768) is not { } bitmap) continue;
@@ -101,6 +103,24 @@ public sealed class NotePictures : Canvas
             }
             var menu = new ContextMenu();
             AddMenuItem(menu, "Открыть изображение", () => OpenBound(nextStore, note, image));
+            if (editable)
+            {
+                var arrangement = new MenuItem { Header = L.T("Размещение изображения") };
+                foreach (var (mode, label) in new[]
+                {
+                    (ImageTextMode.Inline, "В тексте"), (ImageTextMode.Overlay, "Поверх текста"), (ImageTextMode.Wrap, "Обтекание")
+                })
+                {
+                    var item = new MenuItem { Header = L.T(label), IsCheckable = true, IsChecked = layout.Mode == mode };
+                    item.Click += (_, _) =>
+                    {
+                        item.IsChecked = true;
+                        SetMode(nextStore, note, picture, mode);
+                    };
+                    arrangement.Items.Add(item);
+                }
+                menu.Items.Add(arrangement);
+            }
             AddMenuItem(menu, "Копировать изображение", () =>
             {
                 if (ReadBoundImage(nextStore, note, image) is { } current) Copy(Decode(current));
@@ -108,11 +128,15 @@ public sealed class NotePictures : Canvas
             if (editable) AddMenuItem(menu, "Удалить изображение", () => Remove(nextStore, note, image));
             picture.Frame.ContextMenu = menu;
             pictures.Add(picture);
-            Children.Add(picture.Frame);
+            if (layout.Mode == ImageTextMode.Overlay) Children.Add(picture.Frame);
             Place(picture);
         }
         Select(selected);
+        body?.ReflowPictures();
     }
+
+    internal IEnumerable<(Border Frame, NoteImageLayout Layout, double Ratio)> TextFrames =>
+        pictures.Where(p => p.Layout.Mode != ImageTextMode.Overlay).Select(p => (p.Frame, p.Layout, p.Ratio));
 
     private sealed class Picture(Guid id, NoteImageLayout layout, double ratio)
     {
@@ -120,6 +144,7 @@ public sealed class NotePictures : Canvas
         internal double Ratio { get; } = ratio;
         internal NoteImageLayout Layout { get; set; } = layout;
         internal NoteImageLayout Saved { get; set; } = layout;
+        internal bool MovingInText { get; set; }
         internal Border Frame { get; } = new();
         internal Thumb Resize { get; } = new()
         {
@@ -143,7 +168,7 @@ public sealed class NotePictures : Canvas
 
     private void Place(Picture picture)
     {
-        if (ActualWidth < 2 || ActualHeight < 2) return;
+        if (ActualWidth < 2 || ActualHeight < 2 || picture.Layout.Mode != ImageTextMode.Overlay) return;
         var layout = picture.Layout;
         var width = Math.Min(layout.Width * ActualWidth, ActualHeight * picture.Ratio);
         var height = width / picture.Ratio;
@@ -155,6 +180,7 @@ public sealed class NotePictures : Canvas
 
     private void MovePicture(Picture picture, double dx, double dy)
     {
+        if (picture.Layout.Mode != ImageTextMode.Overlay) { picture.MovingInText = true; return; }
         var frame = picture.Frame;
         var x = Math.Clamp(GetLeft(frame) + dx, 0, Math.Max(0, ActualWidth - frame.Width));
         var y = Math.Clamp(GetTop(frame) + dy, 0, Math.Max(0, ActualHeight - frame.Height));
@@ -165,22 +191,65 @@ public sealed class NotePictures : Canvas
     private void ResizePicture(Picture picture, double dx, double dy)
     {
         var frame = picture.Frame;
+        if (picture.Layout.Mode != ImageTextMode.Overlay)
+        {
+            if (ActualWidth < 2 || ActualHeight < 2) return;
+            var change = Math.Abs(dx) >= Math.Abs(dy * picture.Ratio) ? dx : dy * picture.Ratio;
+            var max = Math.Min(ActualWidth * (picture.Layout.Mode == ImageTextMode.Wrap ? .67 : 1), ActualHeight * picture.Ratio);
+            frame.Width = Math.Clamp(frame.Width + change, Math.Min(32, max), max);
+            frame.Height = frame.Width / picture.Ratio;
+            picture.Layout = (picture.Layout with { Width = frame.Width / ActualWidth }).Bounded();
+            return;
+        }
         var x = GetLeft(frame);
         var y = GetTop(frame);
         var limit = Math.Max(0, Math.Min(ActualWidth - x, (ActualHeight - y) * picture.Ratio));
         var delta = Math.Abs(dx) >= Math.Abs(dy * picture.Ratio) ? dx : dy * picture.Ratio;
         var width = Math.Clamp(frame.Width + delta, Math.Min(32, limit), limit);
-        picture.Layout = new NoteImageLayout(x / ActualWidth, y / ActualHeight, width / ActualWidth).Bounded();
+        picture.Layout = (picture.Layout with { X = x / ActualWidth, Y = y / ActualHeight, Width = width / ActualWidth }).Bounded();
         Place(picture);
     }
 
     private void FinishMove(NoteStore target, Guid note, Picture picture, bool canceled)
     {
-        if (canceled) { picture.Layout = picture.Saved; Place(picture); return; }
+        if (canceled)
+        {
+            picture.MovingInText = false;
+            picture.Layout = picture.Saved;
+            Place(picture);
+            if (picture.Layout.Mode != ImageTextMode.Overlay) body?.ReflowPictures();
+            return;
+        }
+        if (picture.MovingInText && body != null)
+        {
+            picture.MovingInText = false;
+            var point = Mouse.GetPosition(body);
+            picture.Layout = (picture.Layout with { X = point.X / Math.Max(1, body.ActualWidth), Anchor = body.ParagraphAt(point) }).Bounded();
+        }
         if (target != store || noteId != note || picture.Layout == picture.Saved) return;
         target.SaveImageLayout(note, picture.Id, picture.Layout);
         picture.Saved = picture.Layout;
         saved = saved.Select(entry => entry.Id == picture.Id ? (entry.Id, (NoteImageLayout?)picture.Layout) : entry).ToArray();
+        if (picture.Layout.Mode != ImageTextMode.Overlay) body?.ReflowPictures();
+    }
+
+    private void SetMode(NoteStore target, Guid note, Picture picture, ImageTextMode mode)
+    {
+        if (target != store || noteId != note || !editable || picture.Layout.Mode == mode) return;
+        var layout = picture.Layout with { Mode = mode };
+        if (body != null && picture.Layout.Mode == ImageTextMode.Overlay)
+            layout = layout with
+            {
+                Anchor = body.ParagraphAt(new Point(GetLeft(picture.Frame), GetTop(picture.Frame) + picture.Frame.Height * .2))
+            };
+        if (body != null && mode == ImageTextMode.Overlay && picture.Frame.IsVisible)
+        {
+            var position = picture.Frame.TranslatePoint(new Point(), body);
+            layout = layout with { X = position.X / Math.Max(1, ActualWidth), Y = position.Y / Math.Max(1, ActualHeight) };
+        }
+        selected = picture.Id;
+        target.SaveImageLayout(note, picture.Id, layout);
+        Bind(target, note, editable);
     }
 
     private void OpenBound(NoteStore target, Guid note, Guid image)

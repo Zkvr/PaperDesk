@@ -68,6 +68,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             var current = row.Note;
             var updated = current with { Title = title ?? current.Title, Body = body ?? current.Body };
             if (updated == current) return;
+            if (body != null) ShiftPictureAnchors(id, current.Body, body);
             var divergence = (title != null && current.Title != shownTitle && current.Title != title)
                 || (body != null && current.Body != shownBody && current.Body != body);
             if (divergence) Recover(current);
@@ -410,6 +411,27 @@ public sealed class NoteStore : INoteStore, IDisposable
                 ("$layout", Json.Write(layout.Bounded())), ("$note", noteId.ToString()), ("$id", id.ToString()));
         }
         Changed?.Invoke();
+    }
+
+    private void ShiftPictureAnchors(Guid noteId, string before, string after)
+    {
+        var prefix = 0;
+        while (prefix < before.Length && prefix < after.Length && before[prefix] == after[prefix]) prefix++;
+        var endBefore = before.Length;
+        var endAfter = after.Length;
+        while (endBefore > prefix && endAfter > prefix && before[endBefore - 1] == after[endAfter - 1])
+        { endBefore--; endAfter--; }
+        var removed = before.AsSpan(prefix, endBefore - prefix).Count('\n');
+        var inserted = after.AsSpan(prefix, endAfter - prefix).Count('\n');
+        if (removed == inserted) return;
+        var first = before.AsSpan(0, prefix).Count('\n');
+        foreach (var (id, layout) in ImageLayouts(noteId))
+        {
+            if (layout is not { Mode: not ImageTextMode.Overlay } || layout.Anchor <= first) continue;
+            var anchor = Math.Max(first + inserted, layout.Anchor + inserted - removed);
+            Exec("UPDATE note_images SET layout=$layout WHERE note_id=$note AND id=$id",
+                ("$layout", Json.Write(layout with { Anchor = anchor })), ("$note", noteId.ToString()), ("$id", id.ToString()));
+        }
     }
 
     public void RemoveImage(Guid noteId, Guid id)

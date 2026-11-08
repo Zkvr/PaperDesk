@@ -15,7 +15,7 @@ Keep a checklist beside your work, a stack for each project, and a blank sheet f
 ![PaperDesk’s Windows manager with pastel notes, desktop sections, and a wide checklist editor with an image attachment](media/manager.png)
 
 - **Peel, drop, stack.** Pull a sheet out of a stack by its lower edge. Drop it onto another note to make a new stack, then give the stack a name.
-- **Keep the whole thought.** Check off tasks as you go. Paste a screenshot or drag an image from Chrome or Explorer. Move it around the note and drag its corner to resize it.
+- **Keep the whole thought.** Edit task labels, table cells, and spoilers in place. Paste a screenshot or drag an image from Chrome or Explorer, then choose whether it sits in the text, wraps the text, or floats on top.
 - **Find it when you need it.** Bring notes forward with a shortcut, or search and sort them in the manager. Archive or trash several sheets at once.
 
 <details>

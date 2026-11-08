@@ -49,9 +49,15 @@ public record Backup(int Version, DateTimeOffset ExportedAt, List<Note> Notes, L
     List<Note> RecoveryVersions, List<DesktopStack>? Stacks = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] List<NoteImage>? Images = null);
 
-public sealed record NoteImageLayout(double X, double Y, double Width)
+[JsonConverter(typeof(JsonStringEnumConverter<ImageTextMode>))]
+public enum ImageTextMode { Overlay, Inline, Wrap }
+
+public sealed record NoteImageLayout(double X, double Y, double Width,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImageTextMode Mode = ImageTextMode.Overlay,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int Anchor = 0)
 {
-    public NoteImageLayout Bounded() => new(Clamp(X, 0, 1, .18), Clamp(Y, 0, 1, .14), Clamp(Width, .08, 1, .64));
+    public NoteImageLayout Bounded() => new(Clamp(X, 0, 1, .18), Clamp(Y, 0, 1, .14), Clamp(Width, .08, 1, .64),
+        Enum.IsDefined(Mode) ? Mode : ImageTextMode.Overlay, Math.Max(0, Anchor));
 
     private static double Clamp(double value, double minimum, double maximum, double fallback) =>
         double.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
