@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using Com = System.Runtime.InteropServices.ComTypes;
+using Ole = System.Runtime.InteropServices.ComTypes;
 
 namespace PaperDesk.Desktop.Controls;
 
@@ -13,13 +13,13 @@ internal static class BrowserImageDrop
 
     internal static byte[]? Read(IDataObject data)
     {
-        if (data is Com.IDataObject native)
+        if (data is Ole.IDataObject native)
         {
-            var format = new Com.FORMATETC
+            var format = new Ole.FORMATETC
             {
                 cfFormat = unchecked((short)RegisterClipboardFormat(Contents)),
-                dwAspect = Com.DVASPECT.DVASPECT_CONTENT,
-                tymed = Com.TYMED.TYMED_ISTREAM | Com.TYMED.TYMED_HGLOBAL,
+                dwAspect = Ole.DVASPECT.DVASPECT_CONTENT,
+                tymed = Ole.TYMED.TYMED_ISTREAM | Ole.TYMED.TYMED_HGLOBAL,
                 lindex = 0
             };
             // Chromium offers the dragged image as a virtual file at index zero.
@@ -28,9 +28,9 @@ internal static class BrowserImageDrop
                 native.GetData(ref format, out var medium);
                 try
                 {
-                    if (medium.tymed == Com.TYMED.TYMED_HGLOBAL) return ReadGlobal(medium.unionmember);
-                    if (medium.tymed == Com.TYMED.TYMED_ISTREAM &&
-                        Marshal.GetObjectForIUnknown(medium.unionmember) is Com.IStream stream)
+                    if (medium.tymed == Ole.TYMED.TYMED_HGLOBAL) return ReadGlobal(medium.unionmember);
+                    if (medium.tymed == Ole.TYMED.TYMED_ISTREAM &&
+                        Marshal.GetObjectForIUnknown(medium.unionmember) is Ole.IStream stream)
                         return ReadStream(stream);
                 }
                 finally { ReleaseStgMedium(ref medium); }
@@ -60,7 +60,7 @@ internal static class BrowserImageDrop
         finally { GlobalUnlock(handle); }
     }
 
-    private static byte[]? ReadStream(Com.IStream source)
+    private static byte[]? ReadStream(Ole.IStream source)
     {
         var count = Marshal.AllocHGlobal(sizeof(int));
         try
@@ -84,5 +84,5 @@ internal static class BrowserImageDrop
     [DllImport("kernel32.dll")] private static extern nuint GlobalSize(nint handle);
     [DllImport("kernel32.dll")] private static extern nint GlobalLock(nint handle);
     [DllImport("kernel32.dll")] private static extern bool GlobalUnlock(nint handle);
-    [DllImport("ole32.dll")] private static extern void ReleaseStgMedium(ref Com.STGMEDIUM medium);
+    [DllImport("ole32.dll")] private static extern void ReleaseStgMedium(ref Ole.STGMEDIUM medium);
 }

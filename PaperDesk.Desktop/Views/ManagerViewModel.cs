@@ -107,16 +107,32 @@ public sealed class ManagerViewModel(DeskController desk) : INotifyPropertyChang
     {
         var preview = NoteSpoilers.Preview(text);
         var tasks = Checklist.Read(preview).ToDictionary(task => task.LineIndex);
-        return string.Join('\n', preview.Split('\n').Take(8).Select((line, index) =>
+        var lines = preview.Split('\n');
+        var summary = new List<string>(8);
+        for (var index = 0; index < lines.Length && summary.Count < 8; index++)
         {
+            var line = lines[index];
             if (tasks.TryGetValue(index, out var task))
-                return (task.IsChecked ? "☑ " : "☐ ") + new PaperInline(task.Label).Text;
-            if (NoteBodyEditor.TableCells(line) is { } cells)
-                return NoteBodyEditor.IsTableDivider(cells) ? null : string.Join("  │  ", cells.Select(cell => new PaperInline(cell).Text));
+            {
+                summary.Add((task.IsChecked ? "☑ " : "☐ ") + new PaperInline(task.Label).Text);
+                continue;
+            }
+            if (index + 1 < lines.Length && NoteBodyEditor.TableCells(line) is { } cells &&
+                NoteBodyEditor.TableCells(lines[index + 1]) is { } divider && divider.Length == cells.Length &&
+                NoteBodyEditor.IsTableDivider(divider))
+            {
+                var headings = string.Join(" · ", cells.Select(cell => new PaperInline(cell).Text)
+                    .Where(label => !string.IsNullOrWhiteSpace(label)).Take(3));
+                summary.Add(headings.Length == 0 ? L.T("▦  Таблица") : "▦  " + headings);
+                index++;
+                while (index + 1 < lines.Length && NoteBodyEditor.TableCells(lines[index + 1])?.Length == cells.Length) index++;
+                continue;
+            }
             if (line.StartsWith("- ", StringComparison.Ordinal)) line = "• " + line[2..];
             else if (line.StartsWith("## ", StringComparison.Ordinal)) line = line[3..];
             else if (line.StartsWith("> ", StringComparison.Ordinal)) line = "│ " + line[2..];
-            return new PaperInline(line).Text;
-        }).Where(line => line != null));
+            summary.Add(new PaperInline(line).Text);
+        }
+        return string.Join('\n', summary);
     }
 }

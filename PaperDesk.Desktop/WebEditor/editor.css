@@ -1,0 +1,39 @@
+html { color-scheme: light; scrollbar-width: thin; scrollbar-color: #74634780 transparent; }
+body { margin: 0; background: transparent; color: #302d29; font: 16px/1.45 "Segoe UI", sans-serif; }
+[hidden] { display: none !important; }
+.tiptap { min-height: calc(100vh - 4px); padding: 1px 5px 3px 2px; box-sizing: border-box; outline: none; overflow-wrap: anywhere; }
+.tiptap p, .tiptap h1, .tiptap h2, .tiptap h3 { margin: 0; }
+.tiptap :is(h1,h2,h3) { font-size: 1.12em; font-weight: 650; }
+.tiptap :is(ul,ol) { margin: 0; padding-left: 1.3em; }
+.tiptap blockquote { margin: .2em 0; padding-left: .65em; border-left: 2px solid #74634780; }
+.tiptap code { font: .94em Consolas, monospace; background: #69502413; padding: 0 .18em; }
+.tiptap .tableWrapper { overflow-x: auto; margin: .28em 0; }
+.tiptap table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.tiptap :is(td,th) { text-align: left; vertical-align: top; border: 1px solid #75623a61; padding: 1px 7px; }
+.tiptap th { background: #75623a16; }
+.tiptap .selectedCell { background: #b7c8dd; }
+.tiptap ul[data-type=taskList] { padding-left: 0; list-style: none; }
+.tiptap li[data-type=taskItem] { display: flex; align-items: baseline; gap: .32em; }
+.tiptap li[data-type=taskItem] > div { min-width: 0; }
+.tiptap input[type=checkbox] { accent-color: #78623a; margin: 0; }
+.tiptap [data-type=details] { display: flex; gap: .3em; margin: .18em 0; }
+.tiptap [data-type=details] > button { font: inherit; border: 0; background: transparent; color: inherit; cursor: pointer; align-self: flex-start; }
+.tiptap [data-type=details] > button::before { content: "▸"; }
+.tiptap [data-type=details].is-open > button::before { content: "▾"; }
+.tiptap [data-type=details] > div { flex: 1; min-width: 0; }
+.tiptap summary { list-style: none; font-weight: 600; }
+.tiptap [data-type=detailsContent][hidden] { display: none; }
+.tiptap [data-resize-container] { justify-content: center; margin-block: .2em; max-width: 100%; }
+.tiptap [data-resize-wrapper] { max-width: 100%; }
+.tiptap img { max-width: 100%; height: auto !important; user-select: none; display: block; }
+.tiptap [data-resize-container]:has(img[data-mode=wrap]) { float: left; max-width: 58%; margin-right: .55em; }
+.tiptap [data-resize-container]:has(img[data-mode=wrap][data-side=right]) { float: right; margin-right: 0; margin-left: .55em; }
+.tiptap [data-resize-container]:has(img[data-mode=overlay]) { height: 0; position: relative; z-index: 1; justify-content: start; margin: 0; }
+.tiptap [data-resize-container]:has(img[data-mode=overlay][data-side=right]) { justify-content: end; }
+.tiptap [data-resize-handle] { width: 14px; height: 14px; border-radius: 4px; background: #fff1bf; border: 1px solid #69552e; display: none; }
+.tiptap .ProseMirror-selectednode [data-resize-handle], .tiptap [data-resize-container]:hover [data-resize-handle], .tiptap [data-resize-state=true] [data-resize-handle] { display: block; }
+.tiptap .ProseMirror-selectednode img { outline: 2px solid #836a3f; }
+.tiptap .ProseMirror-gapcursor::after { border-top: 1px solid #6c5634; }
+#menu { position: fixed; z-index: 4; box-sizing: border-box; width: max-content; max-width: 100%; max-height: 85vh; overflow: auto; padding: 5px; border-radius: 8px; background: #272b32; color: #f4eee6; box-shadow: 0 4px 12px #0003; }
+#menu button { display: block; width: 100%; padding: 6px 9px; border: 0; background: transparent; color: inherit; text-align: left; font: 13px "Segoe UI", sans-serif; cursor: pointer; border-radius: 4px; }
+#menu button:hover, #menu button:focus-visible { background: #ffffff20; }

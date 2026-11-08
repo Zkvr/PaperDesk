@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory)][string]$Compiler,
     [string]$Output = "artifacts\release",
-    [string]$Version = "0.3.0-preview.11"
+    [string]$Version = "0.3.0-preview.17"
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot

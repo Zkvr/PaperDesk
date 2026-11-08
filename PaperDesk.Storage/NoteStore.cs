@@ -17,22 +17,32 @@ public sealed class NoteStore : INoteStore, IDisposable
         owner = ownerId;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
-        db.Open();
-        Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;");
-        using (var check = Command("PRAGMA quick_check"))
-            if ((string?)check.ExecuteScalar() != "ok") throw new InvalidDataException(L.T("База повреждена. Исходный файл сохранён; восстановите резервную копию в другом профиле."));
-        Exec("""
-            CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, json TEXT NOT NULL, generation INTEGER NOT NULL, dirty INTEGER NOT NULL, conflict TEXT);
-            CREATE TABLE IF NOT EXISTS outbox(note_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS placements(id TEXT PRIMARY KEY, json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS desktop_stacks(id TEXT PRIMARY KEY, json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS recovery(id INTEGER PRIMARY KEY, json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS purged(id TEXT PRIMARY KEY);
-            CREATE TABLE IF NOT EXISTS note_images(note_id TEXT NOT NULL, id TEXT NOT NULL, png BLOB NOT NULL, layout TEXT, PRIMARY KEY(note_id,id));
-            PRAGMA user_version=1;
-            """);
-        using var layoutColumn = Command("SELECT 1 FROM pragma_table_info('note_images') WHERE name='layout'");
-        if (layoutColumn.ExecuteScalar() == null) Exec("ALTER TABLE note_images ADD COLUMN layout TEXT");
+        try
+        {
+            db.Open();
+            Exec("PRAGMA busy_timeout=5000;");
+            using (var check = Command("PRAGMA quick_check"))
+                if ((string?)check.ExecuteScalar() != "ok") throw new InvalidDataException(L.T("База повреждена. Исходный файл сохранён; восстановите резервную копию в другом профиле."));
+            Exec("""
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=FULL;
+                CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, json TEXT NOT NULL, generation INTEGER NOT NULL, dirty INTEGER NOT NULL, conflict TEXT);
+                CREATE TABLE IF NOT EXISTS outbox(note_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, json TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS placements(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS desktop_stacks(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS recovery(id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS purged(id TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS note_images(note_id TEXT NOT NULL, id TEXT NOT NULL, png BLOB NOT NULL, layout TEXT, PRIMARY KEY(note_id,id));
+                PRAGMA user_version=1;
+                """);
+            using var layoutColumn = Command("SELECT 1 FROM pragma_table_info('note_images') WHERE name='layout'");
+            if (layoutColumn.ExecuteScalar() == null) Exec("ALTER TABLE note_images ADD COLUMN layout TEXT");
+        }
+        catch
+        {
+            db.Dispose();
+            throw;
+        }
     }
 
     public IReadOnlyList<LocalNote> All()
@@ -58,7 +68,8 @@ public sealed class NoteStore : INoteStore, IDisposable
         lock (gate) { using var tx = db.BeginTransaction(); SaveInternal(note); tx.Commit(); }
         Changed?.Invoke();
     }
-    public void SaveText(Guid id, string? title, string? body, string shownTitle, string shownBody)
+    public void SaveText(Guid id, string? title, string? body, string shownTitle, string shownBody,
+        IReadOnlyDictionary<Guid, NoteImageLayout>? imageLayouts = null)
     {
         if (title == null && body == null) return;
         lock (gate)
@@ -67,15 +78,21 @@ public sealed class NoteStore : INoteStore, IDisposable
             if (Find(id) is not { } row) return;
             var current = row.Note;
             var updated = current with { Title = title ?? current.Title, Body = body ?? current.Body };
-            if (updated == current) return;
-            if (body != null) ShiftPictureAnchors(id, current.Body, body);
-            var divergence = (title != null && current.Title != shownTitle && current.Title != title)
-                || (body != null && current.Body != shownBody && current.Body != body);
-            if (divergence) Recover(current);
-            if (divergence && !row.Dirty && current.Revision > 0)
-                Put(new LocalNote(updated with { UpdatedAt = DateTimeOffset.UtcNow }, row.Generation + 1, true, current));
-            else
-                SaveInternal(updated);
+            if (updated == current && imageLayouts is not { Count: > 0 }) return;
+            if (body != null && imageLayouts == null) ShiftPictureAnchors(id, current.Body, body);
+            if (imageLayouts != null && current is { ArchivedAt: null, DeletedAt: null })
+                foreach (var (imageId, layout) in imageLayouts)
+                    PutImageLayout(id, imageId, layout);
+            if (updated != current)
+            {
+                var divergence = (title != null && current.Title != shownTitle && current.Title != title)
+                    || (body != null && current.Body != shownBody && current.Body != body);
+                if (divergence) Recover(current);
+                if (divergence && !row.Dirty && current.Revision > 0)
+                    Put(new LocalNote(updated with { UpdatedAt = DateTimeOffset.UtcNow }, row.Generation + 1, true, current));
+                else
+                    SaveInternal(updated);
+            }
             tx.Commit();
         }
         Changed?.Invoke();
@@ -395,7 +412,7 @@ public sealed class NoteStore : INoteStore, IDisposable
                 pictures.Count > NoteImage.MaxPerNote - ImageIds(noteId).Count) return false;
             using var tx = db.BeginTransaction();
             for (var i = 0; i < pictures.Count; i++)
-                PutImage(new NoteImage(noteId, Guid.NewGuid(), pictures[i], i == 0 ? position : null));
+                PutImage(new NoteImage(noteId, Guid.NewGuid(), pictures[i], i == 0 || position?.Mode == ImageTextMode.Inline ? position : null));
             tx.Commit();
         }
         Changed?.Invoke();
@@ -407,11 +424,14 @@ public sealed class NoteStore : INoteStore, IDisposable
         lock (gate)
         {
             if (Find(noteId)?.Note is not { ArchivedAt: null, DeletedAt: null }) return;
-            Exec("UPDATE note_images SET layout=$layout WHERE note_id=$note AND id=$id",
-                ("$layout", Json.Write(layout.Bounded())), ("$note", noteId.ToString()), ("$id", id.ToString()));
+            PutImageLayout(noteId, id, layout);
         }
         Changed?.Invoke();
     }
+
+    private void PutImageLayout(Guid noteId, Guid id, NoteImageLayout layout) =>
+        Exec("UPDATE note_images SET layout=$layout WHERE note_id=$note AND id=$id",
+            ("$layout", Json.Write(layout.Bounded())), ("$note", noteId.ToString()), ("$id", id.ToString()));
 
     private void ShiftPictureAnchors(Guid noteId, string before, string after)
     {

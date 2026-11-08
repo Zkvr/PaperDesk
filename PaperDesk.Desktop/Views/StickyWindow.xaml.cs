@@ -39,6 +39,7 @@ public partial class StickyWindow : Window
         Left = p.X; Top = p.Y; Width = Math.Clamp(p.Width, MinWidth, 1600); Height = Math.Clamp(p.Height, MinHeight, 1400); Opacity = Math.Clamp(p.Opacity, .94, 1);
         BodyBox.ConnectTitle(TitleBox);
         Pictures.ConnectDrop(Paper, BodyBox);
+        if (Application.Current is App) BodyBox.EnableWebEditor(desk, () => desk.NewNote());
         ApplyStyle(p); RefreshContent(); loading = false;
         positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         positionTimer.Tick += (_, _) => { positionTimer.Stop(); SavePosition(); };
@@ -89,7 +90,7 @@ public partial class StickyWindow : Window
             { desk.MoveStack(NoteId, e.Key == Key.PageDown ? 1 : -1); e.Handled = true; }
         };
     }
-    private void ApplyStyle(Placement p) { Paper.Fill = PaperPalette.Brush(p.Color); ColorDot.Fill = PaperPalette.Brush(p.Color); BodyBox.FontFamily = new FontFamily(p.Font); BodyBox.FontSize = Math.Clamp(p.FontSize, 12, 32); Opacity = Math.Clamp(p.Opacity, .94, 1); PinButton.Background = p.Topmost ? new SolidColorBrush(Color.FromArgb(40,80,65,28)) : Brushes.Transparent; PinButton.ToolTip = p.Topmost ? L.T("Открепить от переднего плана") : L.T("Закрепить поверх окон"); }
+    private void ApplyStyle(Placement p) { Paper.Fill = PaperPalette.Brush(p.Color); ColorDot.Fill = PaperPalette.Brush(p.Color); BodyBox.FontFamily = new FontFamily(p.Font); BodyBox.FontSize = Math.Clamp(p.FontSize, 12, 32); BodyBox.QueueWebSync(); Opacity = Math.Clamp(p.Opacity, .94, 1); PinButton.Background = p.Topmost ? new SolidColorBrush(Color.FromArgb(40,80,65,28)) : Brushes.Transparent; PinButton.ToolTip = p.Topmost ? L.T("Открепить от переднего плана") : L.T("Закрепить поверх окон"); }
     public void RefreshContent(IReadOnlyList<Note>? notes = null) => DisplayNote(NoteId, notes);
 
     private bool DisplayNote(Guid id, IReadOnlyList<Note>? notes = null)

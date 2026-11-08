@@ -26,6 +26,7 @@ static class UiChecks
         Require(PaperDesk.Core.L.T("Все заметки") == "Все заметки", "Russian UI strings must follow the UI culture");
         var app=new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
+        if (args is ["--web-editor", var editorFolder]) return WebEditorChecks.Run(editorFolder);
         var body=new NoteBodyEditor { Width=270,Height=180,FontSize=17,Text="☐ В банк\n☑ В сервис\nОбычная строка" };
         Layout(body);var boxes=Descendants(body).OfType<CheckBox>().ToList();
         Require(boxes.Count==2,"Unicode markers must become real CheckBox controls");
@@ -37,7 +38,7 @@ static class UiChecks
         Console.WriteLine("PASS actual WPF checkbox click persists through SQLite");
         body.BeginEdit();
         Layout(body);
-        var field = Descendants(body).OfType<TextBox>().Single(x => x.Visibility == Visibility.Visible);
+        var field = Descendants(body).OfType<PaperLineInput>().Single(x => x.Visibility == Visibility.Visible);
         Require(field.Text == "Обычная строка" && Descendants(body).OfType<CheckBox>().Count() == 2 &&
             Descendants(body).OfType<ScrollViewer>().Single(x => x.Content is StackPanel).Visibility == Visibility.Visible,
             $"Editing a paragraph must keep the real checkboxes on screen (active text: {field.Text})");
@@ -63,7 +64,7 @@ static class UiChecks
             RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = editableLabel
         });
         Require(body.IsEditing && body.CaretIndex < body.Text.Length, "A single click on a task label must start writing on that line");
-        var taskField = Descendants(body).OfType<TextBox>().Single(x => x.Visibility == Visibility.Visible);
+        var taskField = Descendants(body).OfType<PaperLineInput>().Single(x => x.Visibility == Visibility.Visible);
         Require(taskField.Text == "В банк", "The task field must not show its checkbox markup");
         taskField.Text = "В офис";
         Require(body.Text.StartsWith("☑ В офис", StringComparison.Ordinal), "Editing the task label must preserve checked state");
@@ -85,8 +86,17 @@ static class UiChecks
             "Editing the spoiler title must leave a real disclosure and preserve its contents");
         blocks.EndEdit();
         Console.WriteLine("PASS visual table and spoiler fields preserve the structured note while typing");
+        var beforeSpoiler = "Оставить";
+        var spoilerEdit = NoteFormat.Apply(beforeSpoiler, beforeSpoiler.Length, 0, NoteFormat.Kind.Spoiler);
+        Require(spoilerEdit.Text == "\n:::spoiler\n\n:::\n", "A new spoiler must contain an empty body and no stored placeholder");
+        var codeEdit = NoteFormat.Apply("", 0, 0, NoteFormat.Kind.Code);
+        Require(codeEdit.Text == "", "Code must not insert sample text without a selection");
+        var listText = "- [ ] Пункт\n- Строка";
+        var boldEdit = NoteFormat.Apply(listText, 0, listText.Length, NoteFormat.Kind.Bold);
+        Require(boldEdit.Text == "- [ ] **Пункт**\n- **Строка**", "Formatting multiple rows must leave list markers outside the style");
+        CheckFormatting(folder);
 
-        TextBox ClickBlock(string label)
+        PaperLineInput ClickBlock(string label)
         {
             var caption = Descendants(blocks).OfType<TextBlock>().Single(c => c.Text == label && c.Visibility == Visibility.Visible);
             var scroll = Descendants(blocks).OfType<ScrollViewer>().Single(v => v.Content is StackPanel);
@@ -94,7 +104,7 @@ static class UiChecks
             {
                 RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = caption
             });
-            var input = Descendants(blocks).OfType<TextBox>().Single(x => x.Visibility == Visibility.Visible);
+            var input = Descendants(blocks).OfType<PaperLineInput>().Single(x => x.Visibility == Visibility.Visible);
             Require(input.Text == label, "The active field must display only the visible label");
             return input;
         }
@@ -440,9 +450,30 @@ static class UiChecks
                 "The wide editor must show two placeholders for an empty note");
 
             var pictures = (NotePictures)manager.FindName("EditorPictures");
+            var body = (NoteBodyEditor)manager.FindName("EditBody");
             var bitmap = BitmapSource.Create(4, 4, 96, 96, PixelFormats.Bgr32, null, new byte[64], 16);
             Require(pictures.TryAttach(new DataObject(DataFormats.Bitmap, bitmap)), "Paste must accept a Windows bitmap");
             var originalId = desk.Store.ImageIds(note.Id).Single();
+            Require(desk.Store.ImageLayouts(note.Id).Single().Layout is { Mode: ImageTextMode.Inline },
+                "A pasted picture must use the scrolling document flow by default");
+            body.Text = string.Join('\n', Enumerable.Range(1, 80).Select(i => $"Проверочная строка {i}"));
+            manager.UpdateLayout();
+            var bodyScroll = Descendants(body).OfType<ScrollViewer>().Single(v => v.Content is StackPanel);
+            var originalInline = Descendants(body).OfType<Border>().Single(b => Equals(b.Tag, originalId));
+            ScrollBody(0);
+            var initialTop = originalInline.TranslatePoint(new Point(), body).Y;
+            ScrollBody(20);
+            Require(originalInline.TranslatePoint(new Point(), body).Y + originalInline.ActualHeight < 0 && initialTop >= 0,
+                "An inline picture must leave the viewport when the note scrolls");
+            ScrollBody(0);
+            ChooseMode(originalInline, "Поверх текста");
+            var overlay = pictures.Children.OfType<Border>().Single(b => Equals(b.Tag, originalId));
+            var overlayTop = Canvas.GetTop(overlay);
+            ScrollBody(20);
+            Require(Canvas.GetTop(overlay) + overlay.ActualHeight < 0 && Canvas.GetTop(overlay) < overlayTop,
+                "An overlay must move with the document and clip above the viewport");
+            ScrollBody(0);
+
             var png = desk.Store.ReadImage(note.Id, originalId)!;
             var path = Path.Combine(profile, "dropped.png");
             File.WriteAllBytes(path, png);
@@ -474,7 +505,10 @@ static class UiChecks
 
             desk.ShowSticky(note.Id);
             var sheet = Application.Current.Windows.OfType<StickyWindow>().Single(w => w.NoteId == note.Id);
-            Require(((NotePictures)sheet.FindName("Pictures")).Children.Count == 3, "Desktop sheets must show the same images");
+            sheet.UpdateLayout();
+            Require(((NotePictures)sheet.FindName("Pictures")).Children.Count +
+                Descendants((NoteBodyEditor)sheet.FindName("BodyBox")).OfType<Border>().Count(b => b.Tag is Guid) == 3,
+                "Desktop sheets must show the same overlay and inline images");
             var backup = desk.Store.Export();
             using var imported = new NoteStore(Path.Combine(profile, "imported.db"));
             imported.Import(backup);
@@ -487,10 +521,15 @@ static class UiChecks
             remove.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Require(desk.Store.ImageIds(note.Id).Count == 2, "Removing one picture must leave the other pictures and note");
 
-            var body = (NoteBodyEditor)manager.FindName("EditBody");
+            body.Text = "| План | Срок |\n| --- | --- |\n| Встреча | Завтра |\nТекст после таблицы";
+            var cardsPreview = new ManagerViewModel(desk);
+            cardsPreview.Refresh();
+            Require(cardsPreview.Notes.Single().Preview == "▦  План · Срок\nТекст после таблицы",
+                "A card must summarize the table without pipe markup and retain surrounding text");
             body.Text = "Список дел\n" + string.Join(' ', Enumerable.Repeat("Длинный абзац с задачами на неделю.", 12));
             manager.UpdateLayout();
             var editableId = desk.Store.ImageIds(note.Id)[0];
+            ChooseMode(Descendants(body).OfType<Border>().Single(b => Equals(b.Tag, editableId)), "Поверх текста");
             ChooseMode(pictures.Children.OfType<Border>().Single(b => Equals(b.Tag, editableId)), "В тексте");
             var inline = Descendants(body).OfType<Border>().Single(b => Equals(b.Tag, editableId));
             Require(inline.Parent is Grid { ColumnDefinitions.Count: 0 } && !pictures.Children.Contains(inline),
@@ -498,6 +537,8 @@ static class UiChecks
             ChooseMode(inline, "Обтекание");
             var wrap = desk.Store.ImageLayouts(note.Id).Single(p => p.Id == editableId).Layout!;
             desk.Store.SaveImageLayout(note.Id, editableId, wrap with { Anchor = 1, X = .1, Width = .42 });
+            var otherPicture = desk.Store.ImageLayouts(note.Id).Single(p => p.Id != editableId);
+            desk.Store.SaveImageLayout(note.Id, otherPicture.Id, otherPicture.Layout! with { Anchor = 1, Mode = ImageTextMode.Inline });
             pictures.Bind(desk.Store, note.Id, true);
             manager.UpdateLayout();
             var wrapped = Descendants(body).OfType<Border>().Single(b => Equals(b.Tag, editableId));
@@ -517,9 +558,33 @@ static class UiChecks
 
             void ChooseMode(Border picture, string label)
             {
-                var placement = picture.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Размещение изображения"));
-                placement.Items.OfType<MenuItem>().Single(item => Equals(item.Header, label))
-                    .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                var id = picture.Tag;
+                pictures.Bind(desk.Store, note.Id, true);
+                manager.UpdateLayout();
+                picture = pictures.Children.OfType<Border>().Concat(Descendants(body).OfType<Border>()).Single(b => Equals(b.Tag, id));
+                picture.BringIntoView();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                var menu = picture.ContextMenu;
+                menu.PlacementTarget = picture;
+                menu.IsOpen = true;
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                var placement = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Размещение изображения"));
+                var peer = new System.Windows.Automation.Peers.MenuItemAutomationPeer(placement);
+                ((System.Windows.Automation.Provider.IExpandCollapseProvider)peer.GetPattern(
+                    System.Windows.Automation.Peers.PatternInterface.ExpandCollapse)).Expand();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                var choice = placement.Items.OfType<MenuItem>().Single(item => Equals(item.Header, label));
+                Require(placement.Template.FindName("PART_Popup", placement) is Popup { IsOpen: true } && choice.IsVisible,
+                    $"The live image submenu must show {label}, menu={menu.IsOpen}, submenu={placement.IsSubmenuOpen}, choice={choice.IsVisible}");
+                choice.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                menu.IsOpen = false;
+                manager.UpdateLayout();
+            }
+
+            void ScrollBody(double offset)
+            {
+                bodyScroll.ScrollToVerticalOffset(offset);
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
                 manager.UpdateLayout();
             }
         }
@@ -818,6 +883,305 @@ static class UiChecks
     {
         return PixelAlpha(Render(paper), new Int32Rect((int)paper.Width - 10, (int)paper.Height - 10, 1, 1));
     }
+    private static void CheckFormatting(string folder)
+    {
+        var body = new NoteBodyEditor { Width = 380, Height = 360, FontSize = 16 };
+        var format = new Button { Content = "Формат" };
+        format.Click += (_, _) => body.OpenFormatMenu(format);
+        var panel = new DockPanel();
+        DockPanel.SetDock(format, Dock.Top);
+        panel.Children.Add(format);
+        panel.Children.Add(body);
+        var host = new Window { Content = panel, Width = 430, Height = 430, ShowInTaskbar = false };
+        host.Show();
+        try
+        {
+            body.Text = "- Первый\n- [x] Второй";
+            body.BeginEdit();
+            Field().CaretIndex = 0;
+            SendKey(Key.Back);
+            Require(body.Text == "- Первый\nВторой", "Backspace at the start of a checked task must remove the box and keep its label");
+            body.EndEdit();
+            Edit("Первый").CaretIndex = 0;
+            SendKey(Key.Back);
+            Require(body.Text == "Первый\nВторой", "Backspace at the beginning of a bullet must turn it into plain text");
+            body.EndEdit();
+            body.Text = "1. Номер\n- ";
+            body.BeginEdit();
+            SendKey(Key.Back);
+            Require(body.Text == "1. Номер\n", "Backspace on an empty bullet must leave an ordinary blank line");
+            body.EndEdit();
+            body.Text = "Текст\n- [ ] ";
+            body.BeginEdit();
+            SendKey(Key.Back);
+            Require(body.Text == "Текст\n", "Backspace must also remove an empty checkbox");
+            Console.WriteLine("PASS Backspace removes bullet and checklist markers without deleting text");
+
+            body.EndEdit();
+            body.Text = "- Первый\n- [x] Второй\nСтрока";
+            body.BeginEdit();
+            ApplicationCommands.SelectAll.Execute(null, Field());
+            Require(Descendants(body).OfType<TextBlock>().Count(t => t.Inlines.OfType<System.Windows.Documents.Run>().Any(run => run.Background != null)) == 2,
+                "Select All from the active row must highlight the other rows");
+            ChooseFormat("Жирный");
+            Require(body.Text == "- **Первый**\n- [x] **Второй**\n**Строка**", "Format must use the selection across list rows and preserve their markers");
+            body.EndEdit();
+            Edit("Второй").SelectAll();
+            ChooseFormat("Курсив");
+            var styled = new PaperInline(body.Text.Split('\n')[1]);
+            Require(styled.Text == "- [x] Второй" && styled.HasStyle(6, styled.Text.Length, PaperInline.Style.Bold | PaperInline.Style.Italic),
+                "Combining bold and italic must preserve the existing style and the selected label");
+            Field().Text = "Правка";
+            body.EndEdit();
+            Edit("Правка");
+            Require(Runs().Single() is { FontWeight: var weight, FontStyle: var style } &&
+                weight == FontWeights.Bold && style == FontStyles.Italic,
+                "A uniformly formatted selection must keep its appearance when editing it again");
+            body.EndEdit();
+            body.Text = "Обычный **жирный** и _курсив_";
+            Edit("Обычный жирный и курсив");
+            var mixed = Runs().ToArray();
+            Require(mixed.Length == 4 && mixed[1].Text == "жирный" && mixed[1].FontWeight == FontWeights.Bold &&
+                mixed[3].Text == "курсив" && mixed[3].FontStyle == FontStyles.Italic, "Mixed styles must stay visible while editing");
+            Pump();
+            SaveSized(body, Path.Combine(folder, "mixed-format-editing.png"));
+            body.EndEdit();
+
+            foreach (var marker in new[] { "**", "*", "_", "~~", "\x60" })
+            {
+                var original = marker + "слово" + marker;
+                body.Text = original;
+                var endField = Edit("слово");
+                endField.CaretIndex = endField.Text.Length;
+                SendKey(Key.Enter);
+                Require(body.Text == original + "\n",
+                    $"Enter after {marker} must keep delimiters on the original line: {Json.Write(body.Text)}");
+                body.EndEdit();
+            }
+            body.Text = "**слово**";
+            var formatted = Edit("слово");
+            formatted.CaretIndex = 2;
+            SendKey(Key.Enter);
+            Require(body.Text == "**сл**\n**ово**", "Enter inside formatted text must split both styled halves");
+            body.EndEdit();
+            body.Text = "**слово**";
+            formatted = Edit("слово");
+            formatted.Select(1, 2);
+            formatted.SelectedText = "X";
+            Require(body.Text == "**сXво**", $"Replacing a selection must preserve its inline style: {body.Text}");
+            body.EndEdit();
+            body.Text = "- **слово**";
+            var listItem = Edit("слово");
+            listItem.CaretIndex = listItem.Text.Length;
+            SendKey(Key.Enter);
+            Require(body.Text == "- **слово**\n- ", "Enter must continue a list even when the label ends in a style");
+            body.EndEdit();
+            Console.WriteLine("PASS Enter and replacement preserve inline Markdown styles");
+
+            body.Text = "До\nСтрока";
+            body.BeginEdit();
+            PlainField().Select(3, 6);
+            ChooseFormat("¶  Подзаголовок");
+            Require(body.Text == "До\n## Строка", "Moving focus from selection to Format must keep the selected paragraph");
+            Console.WriteLine("PASS document selection, heading and combined inline formatting survive the Format menu");
+
+            body.EndEdit();
+            body.Text = "";
+            body.BeginEdit();
+            ChooseFormat("Код");
+            Require(body.Text.Length == 0, "The Code command must wait for the first typed character");
+            var input = new TextComposition(InputManager.Current, PlainField(), "x");
+            PlainField().RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, input)
+                { RoutedEvent = TextCompositionManager.PreviewTextInputEvent });
+            Require(body.Text == "\x60x\x60" && Runs().Single().FontFamily.Source == "Consolas", "Typing after Code must style real input");
+            Field().Text = "x + 1";
+            body.EndEdit();
+            Require(body.Text == "\x60x + 1\x60", "Typing more code must preserve the inline style");
+            Console.WriteLine("PASS Code styles typed text without inserting a sample");
+
+            body.Text = "До";
+            body.BeginEdit();
+            ChooseFormat("▸  Спойлер");
+            Require(Field().Text == "" && body.Text == "До\n:::spoiler\n\n:::\n", "New spoilers must start open with an empty body");
+            Field().Text = "Секрет";
+            Disclosure("▾").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Pump();
+            Require(body.Text.Contains("\nСекрет\n", StringComparison.Ordinal) &&
+                Descendants(body).OfType<TextBlock>().All(t => t.Text != "Секрет"), "Closing a spoiler while editing must keep and hide its text");
+            Edit("Спойлер").Text = "Мой спойлер";
+            body.EndEdit();
+            Pump();
+            Disclosure("▸").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Pump();
+            Require(body.Text.Contains(":::spoiler Мой спойлер\nСекрет", StringComparison.Ordinal) &&
+                Descendants(body).OfType<TextBlock>().Any(t => t.Text == "Секрет"), "The new title and body must survive reopening a spoiler");
+            Console.WriteLine("PASS empty spoiler, rename and close/reopen keep saved content");
+
+            body.EndEdit();
+            body.Text = ":::spoiler Заголовок\nСекрет\n:::\nПосле";
+            Edit("Заголовок").CaretIndex = 0;
+            SendKey(Key.Back);
+            Require(body.Text == "Заголовок\nСекрет\nПосле", "Backspace at a spoiler title start must unwrap and preserve its contents");
+            body.EndEdit();
+            body.Text = ":::spoiler Заголовок\r\n**Секрет**\r\n:::\r\nПосле";
+            var spoilerTitle = Edit("Заголовок");
+            spoilerTitle.CaretIndex = 2;
+            SendKey(Key.Enter);
+            Require(Field().Text == "Секрет", "Enter in a collapsed spoiler title must move into its body without splitting the title");
+            Field().CaretIndex = 3;
+            SendKey(Key.Enter);
+            Require(body.Text == ":::spoiler Заголовок\r\n**Сек**\r\n**рет**\r\n:::\r\nПосле",
+                "Enter in a formatted spoiler body must keep its closing line and CRLF");
+            body.EndEdit();
+            Edit("Заголовок").CaretIndex = 0;
+            SendKey(Key.Back);
+            Require(body.Text == "Заголовок\r\n**Сек**\r\n**рет**\r\nПосле", "Unwrap must preserve existing CRLF and body formatting");
+            body.EndEdit();
+            body.Text = ":::spoiler\n\n:::";
+            Edit("Спойлер").CaretIndex = 0;
+            SendKey(Key.Back);
+            Require(body.Text == "", "Backspace on an empty spoiler must remove the empty block");
+            Console.WriteLine("PASS spoiler title Backspace unwraps safely and removes empty blocks");
+
+            foreach (var existing in new[] { ":::spoiler Заголовок\n\n:::", ":::spoiler Заголовок\n:::" })
+            {
+                body.EndEdit();
+                body.Text = existing;
+                Pump();
+                Disclosure("▸").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Pump();
+                var prompt = Descendants(body).OfType<Button>().SingleOrDefault(b => Equals(b.Content, "Написать внутри…"));
+                if (prompt is { IsVisible: true }) prompt.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                else Edit("Написать внутри…");
+                Pump();
+                Field().Text = "Внутри блока";
+                Require(body.Text == ":::spoiler Заголовок\nВнутри блока\n:::", "The prompt must edit the spoiler body, not the title");
+            }
+            Console.WriteLine("PASS opening an existing empty spoiler offers and saves body input");
+
+            body.EndEdit();
+            body.Text = "| Первый | Второй |\n| --- | --- |\n| 1 | 2 |";
+            Pump();
+            var secondCell = (Border)Descendants(body).OfType<TextBlock>().Single(t => CaptionText(t) == "Второй").Parent;
+            var tableScroller = Descendants(body).OfType<ScrollViewer>().Single(v => v.Content is StackPanel);
+            tableScroller.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = secondCell });
+            Require(Field().Text == "Второй", "Clicking in a cell's padding must edit that cell");
+            body.EndEdit();
+
+            body.EndEdit();
+            body.Text = "| А | Б |\n| --- | --- |\n| В | Г |";
+            Edit("А").Text = "Более длинный заголовок";
+            Edit("Г").Text = "Обновлённая ячейка";
+            Require(body.Text == "| Более длинный заголовок | Б |\n| --- | --- |\n| В | Обновлённая ячейка |",
+                "Switching cells after a length change must keep the divider and update the clicked cell");
+            body.EndEdit();
+            body.Text = "| А | Б |\n| --- | --- |\n| В | Г |";
+            Edit("А").Text = "А ещё длиннее";
+            SendKey(Key.Enter);
+            Require(Field().Text == "Б", "Enter after growing a cell must target the actual next cell");
+            Field().Text = "Б2";
+            Require(body.Text == "| А ещё длиннее | Б2 |\n| --- | --- |\n| В | Г |", "Editing the cell entered via Enter must keep every separator");
+            body.EndEdit();
+            Edit("Г").CaretIndex = 1;
+            SendKey(Key.Enter);
+            Require(body.Text.EndsWith("| В | Г |\n", StringComparison.Ordinal) && Field().Text == "",
+                "Enter in the last cell must make an editable paragraph after a table at the end of the note");
+            Field().Text = "После таблицы";
+            Require(body.Text.EndsWith("| В | Г |\nПосле таблицы", StringComparison.Ordinal),
+                "Typing after the last cell must not overwrite the table");
+            body.EndEdit();
+            body.Text = "| А | Б |\n| --- | --- |\n| В | Г |";
+            Edit("А");
+            body.SelectDocument(body.Text.IndexOf('А'), body.Text.IndexOf('Б') + 1);
+            SendKey(Key.Delete);
+            Require(body.Text == "|  |  |\n| --- | --- |\n| В | Г |",
+                "Deleting a selection across cells must clear values without deleting the table separators");
+            body.EndEdit();
+            Console.WriteLine("PASS switching between table cells keeps the divider and typed values");
+
+            body.Text = "Вступление\n| А | Б |\n| --- | --- |\n| В | Г |\nИтог";
+            Pump();
+            TableAction("В", "Добавить строку ниже");
+            Require(body.Text.Contains("| В | Г |\n|  |  |\nИтог", StringComparison.Ordinal), "Add row must insert empty cells before the following paragraph");
+            Field().Text = "Д";
+            body.EndEdit();
+            Pump();
+            TableAction("Д", "Добавить столбец справа");
+            Require(body.Text.Contains("| --- | --- | --- |", StringComparison.Ordinal) &&
+                body.Text.Contains("| Д |  |  |", StringComparison.Ordinal), "Add column must extend the header, divider and data rows");
+            Field().Text = "Е";
+            body.EndEdit();
+            Pump();
+            TableAction("Е", "Удалить столбец");
+            body.EndEdit();
+            Pump();
+            TableAction("Д", "Удалить строку");
+            Require(!body.Text.Contains("Д", StringComparison.Ordinal) && body.Text.Contains("| В | Г |", StringComparison.Ordinal),
+                "Delete row and column must preserve other cells");
+            body.EndEdit();
+            Pump();
+            TableAction("В", "Удалить таблицу");
+            Require(body.Text == "Вступление\nИтог", "Delete table must keep the paragraphs around it");
+            Console.WriteLine("PASS table commands insert and delete rows and columns and remove only the table");
+        }
+        finally { host.Close(); }
+
+        void Pump()
+        {
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            host.UpdateLayout();
+        }
+        PaperLineInput Field() => Descendants(body).OfType<PaperLineInput>().Single(t => t.Visibility == Visibility.Visible);
+        TextBox PlainField() => Descendants(body).OfType<TextBox>().Single(t => t.Visibility == Visibility.Visible);
+        IEnumerable<System.Windows.Documents.Run> Runs() => Field().Document.Blocks.OfType<System.Windows.Documents.Paragraph>()
+            .SelectMany(paragraph => paragraph.Inlines.OfType<System.Windows.Documents.Run>());
+        Button Disclosure(string arrow) => Descendants(body).OfType<Button>().Single(b => Equals(b.Content, arrow));
+        PaperLineInput Edit(string label)
+        {
+            Pump();
+            var captions = Descendants(body).OfType<TextBlock>().Where(t => t.Tag != null).ToArray();
+            var caption = captions.SingleOrDefault(t => CaptionText(t) == label);
+            Require(caption != null, $"Expected caption {label}, got [{string.Join(" | ", captions.Select(CaptionText))}]");
+            var scroll = Descendants(body).OfType<ScrollViewer>().Single(v => v.Content is StackPanel);
+            scroll.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = caption! });
+            return Field();
+        }
+        static string CaptionText(TextBlock caption) =>
+            string.Concat(caption.Inlines.OfType<System.Windows.Documents.Run>().Select(run => run.Text));
+        void SendKey(Key key)
+        {
+            var field = Field();
+            field.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(field)!, 0, key)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            Pump();
+        }
+        void ChooseFormat(string label)
+        {
+            format.Focus();
+            format.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Pump();
+            var menu = PresentationSource.CurrentSources.Cast<PresentationSource>()
+                .Select(source => source.RootVisual).OfType<Visual>().SelectMany(Descendants)
+                .OfType<ContextMenu>().Single(m => m.IsOpen);
+            Pick(menu, label);
+        }
+        void TableAction(string value, string label)
+        {
+            var menu = Edit(value).ContextMenu;
+            Require(menu != null, "The table cell needs a context menu while editing");
+            Pick(menu!, label);
+        }
+        void Pick(ContextMenu menu, string label)
+        {
+            var item = menu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, label));
+            item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            menu.IsOpen = false;
+            Pump();
+        }
+    }
+
     static RenderTargetBitmap Render(FrameworkElement element)
     {
         var bitmap = new RenderTargetBitmap((int)element.Width, (int)element.Height, 96, 96, PixelFormats.Pbgra32);

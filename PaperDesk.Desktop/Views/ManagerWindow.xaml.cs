@@ -23,6 +23,7 @@ public partial class ManagerWindow : Window
         cardDrag = new DesktopCardDrag(this, Cards, desk, () => selecting);
         EditBody.ConnectTitle(EditTitle);
         EditorPictures.ConnectDrop(EditorPaper, EditBody);
+        if (Application.Current is App) EditBody.EnableWebEditor(desk, CreateNote);
         desk.Changed += Refresh;
         Closed += (_, _) => { EditorCrumple.Cancel(); desk.Changed -= Refresh; };
         UpdateGrouping();

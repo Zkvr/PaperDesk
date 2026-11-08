@@ -17,11 +17,11 @@ internal sealed class PaperTextLines(Typeface typeface, double fontSize, double 
     public override TextMarkerProperties? TextMarkerProperties => null;
     public override double Indent => 0;
 
-    public int GetCaretOffset(string text, double distance)
+    public int GetCaretOffset(string text, double distance, PaperInline? inline = null, int start = 0)
     {
         if (text.Length == 0) return 0;
         using var formatter = TextFormatter.Create();
-        var source = new Source(text, run) { PixelsPerDip = run.PixelsPerDip };
+        var source = new Source(text, run, inline, start) { PixelsPerDip = run.PixelsPerDip };
         using var line = formatter.FormatLine(source, 0, 100_000, this, null);
         var hit = line.GetCharacterHitFromDistance(Math.Max(0, distance));
         return Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, text.Length);
@@ -55,25 +55,22 @@ internal sealed class PaperTextLines(Typeface typeface, double fontSize, double 
         finally { previous?.Dispose(); }
     }
 
-    private sealed class Source(string text, TextRunProperties properties, PaperInline? inline = null) : TextSource
+    private sealed class Source(string text, TextRunProperties properties, PaperInline? inline = null, int start = 0) : TextSource
     {
         public override TextRun GetTextRun(int index)
         {
             if (index >= text.Length) return new TextEndOfParagraph(1);
             if (inline == null) return new TextCharacters(text, index, text.Length - index, properties);
 
-            var part = inline.At(index);
+            var part = inline.At(start + index);
             var typeface = properties.Typeface;
-            typeface = part.Style switch
-            {
-                PaperInline.Style.Bold => new Typeface(typeface.FontFamily, typeface.Style, FontWeights.Bold, typeface.Stretch),
-                PaperInline.Style.Italic => new Typeface(typeface.FontFamily, FontStyles.Italic, typeface.Weight, typeface.Stretch),
-                PaperInline.Style.Code => new Typeface(new FontFamily("Consolas"), typeface.Style, typeface.Weight, typeface.Stretch),
-                _ => typeface
-            };
+            if (part.Style != PaperInline.Style.Plain)
+                typeface = new Typeface(part.Style.HasFlag(PaperInline.Style.Code) ? new FontFamily("Consolas") : typeface.FontFamily,
+                    part.Style.HasFlag(PaperInline.Style.Italic) ? FontStyles.Italic : typeface.Style,
+                    part.Style.HasFlag(PaperInline.Style.Bold) ? FontWeights.Bold : typeface.Weight, typeface.Stretch);
             var styled = typeface == properties.Typeface ? properties :
                 new Run(typeface, properties.FontRenderingEmSize, properties.ForegroundBrush) { PixelsPerDip = properties.PixelsPerDip };
-            return new TextCharacters(text, index, part.Start + part.Length - index, styled);
+            return new TextCharacters(text, index, Math.Min(text.Length - index, part.Start + part.Length - start - index), styled);
         }
 
         public override TextSpan<CultureSpecificCharacterBufferRange> GetPrecedingText(int index)

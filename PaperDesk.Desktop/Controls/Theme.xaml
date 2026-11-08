@@ -84,5 +84,41 @@
   <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{StaticResource Ink}"/></Style>
   <Style TargetType="Separator"><Setter Property="Background" Value="#16FFFFFF"/><Setter Property="Margin" Value="4,9"/></Style>
   <Style TargetType="ContextMenu"><Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="Background" Value="#F0252931"/><Setter Property="BorderBrush" Value="#25FFFFFF"/><Setter Property="Padding" Value="5"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="{TemplateBinding Padding}"><ScrollViewer MaxHeight="680"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/></ScrollViewer></Border></ControlTemplate></Setter.Value></Setter></Style>
-  <Style TargetType="MenuItem"><Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="Padding" Value="12,8"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem"><Border x:Name="Chrome" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}"><ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/></Border><ControlTemplate.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#1CFFFFFF"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+  <Style TargetType="MenuItem">
+    <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+    <Setter Property="Padding" Value="12,8"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="MenuItem">
+          <Border x:Name="Chrome" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock x:Name="Check" Text="✓" Margin="0,0,8,0" Visibility="Collapsed"/>
+              <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"/>
+              <TextBlock x:Name="Arrow" Grid.Column="2" Text="›" Margin="12,0,0,0" Visibility="Collapsed"/>
+              <Popup x:Name="PART_Popup" Grid.ColumnSpan="3" IsOpen="{TemplateBinding IsSubmenuOpen}"
+                     Placement="Right" PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                     AllowsTransparency="True" Focusable="False">
+                <Border Background="#F0252931" BorderBrush="#25FFFFFF" BorderThickness="1" CornerRadius="10" Padding="5">
+                  <ScrollViewer MaxHeight="420">
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="HasItems" Value="True"><Setter TargetName="Arrow" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Check" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#1CFFFFFF"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
 </ResourceDictionary>

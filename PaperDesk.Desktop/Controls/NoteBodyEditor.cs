@@ -5,7 +5,7 @@ using System.Windows.Media.TextFormatting;
 namespace PaperDesk.Desktop.Controls;
 
 /// <summary>A line-scrolling note with clickable tasks and an inline text editor.</summary>
-public sealed class NoteBodyEditor : UserControl
+public sealed partial class NoteBodyEditor : UserControl
 {
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(
         nameof(Text), typeof(string), typeof(NoteBodyEditor), new FrameworkPropertyMetadata(
@@ -20,16 +20,17 @@ public sealed class NoteBodyEditor : UserControl
     public bool IsEditing => (bool)GetValue(IsEditingProperty);
     public int CaretIndex
     {
-        get => blockEditor is { } input ? Math.Clamp(blockSource + input.CaretIndex, 0, Text.Length) : editor.CaretIndex;
-        set { if (blockEditor is { } input) input.CaretIndex = Math.Clamp(value - blockSource, 0, input.Text.Length); else editor.CaretIndex = value; }
+        get => blockEditor is { } input && blockPiece is { } piece ? piece.Raw(input.CaretIndex) : editor.CaretIndex;
+        set { if (blockEditor is { } input && blockPiece is { } piece) input.CaretIndex = piece.Visible(value); else editor.CaretIndex = value; }
     }
-    internal bool EditingPlainText => IsEditing && blockEditor == null;
+    internal bool EditingPlainText => !IsWebActive && IsEditing && blockEditor == null;
 
     private readonly TextBox editor;
     private readonly WholeLinePanel lines;
     private readonly ScrollViewer viewer;
     private bool updating, toggling;
     private double formattedWidth = -1;
+    private string renderedText = "";
     private int? resumeAt;
     private (int Start, int Length)? lastSelection;
     private readonly HashSet<int> openSpoilers = new();
@@ -37,10 +38,12 @@ public sealed class NoteBodyEditor : UserControl
     private Window? owner;
     private NotePictures? pictures;
     private TextWrapRegion? wrap;
-    private TextBox? blockEditor, titleBox;
+    private PaperLineInput? blockEditor;
+    private TextBox? titleBox;
     private TextBlock? blockCaption;
-    private int blockSource;
-    private bool writingBlock, switchingEditor;
+    private RowCaret? blockPiece;
+    private PaperInline.Style pendingStyle;
+    private bool writingBlock, switchingEditor, applyingEdit;
 
     public NoteBodyEditor()
     {
@@ -61,6 +64,7 @@ public sealed class NoteBodyEditor : UserControl
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Focusable = false,
             Background = Brushes.Transparent, Padding = new Thickness(1,1,4,1)
         };
+        viewer.ScrollChanged += (_, _) => pictures?.RefreshOverlays();
         var root = new Grid();
         root.Children.Add(viewer);
         root.Children.Add(editor);
@@ -83,8 +87,10 @@ public sealed class NoteBodyEditor : UserControl
             });
         };
         viewer.MouseLeftButtonDown += EditOnClick;
+        ConnectSelection();
         PreviewKeyDown += (_, e) =>
         {
+            if (HandleSelectionKey(e)) return;
             if (e.Key == Key.F2) { BeginEdit(); e.Handled = true; }
             else if (IsEditing && (e.Key == Key.Escape || (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control)))
             {
@@ -92,25 +98,25 @@ public sealed class NoteBodyEditor : UserControl
                 Focus();
                 e.Handled = true;
             }
-            else if (blockEditor is { } field && e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+            else if (blockEditor is { SelectionLength: 0, CaretIndex: 0 } && e.Key == Key.Back &&
+                blockPiece is { Cell: false } piece && piece.Start == 0 && NoteFormat.RemoveListMarker(Text, piece.Source) is { } remove)
             {
-                var start = Math.Clamp(blockSource + field.SelectionStart, 0, Text.Length);
-                var length = Math.Min(field.SelectionLength, Text.Length - start);
-                var cell = (blockCaption?.Tag as RowCaret)?.Cell == true;
-                var nextCell = cell ? EditableCaptions().Where(c => (c.Tag as RowCaret)?.Cell == true)
-                    .Select(c => (RowCaret)c.Tag).FirstOrDefault(c => c.Source > blockSource) : null;
                 EndEdit();
-                if (cell)
-                {
-                    if (nextCell != null) BeginEdit(nextCell.Source);
-                    else Focus();
-                }
-                else
-                {
-                    var change = length == 0 ? NoteFormat.ContinueList(Text, start) : null;
-                    ApplyDocumentEdit(change ?? new NoteFormat.Edit(start, length, "\n", 1));
-                    BeginEdit(lastSelection!.Value.Start);
-                }
+                ApplyDocumentEdit(remove);
+                BeginEdit(lastSelection!.Value.Start);
+                e.Handled = true;
+            }
+            else if (blockEditor is { SelectionLength: 0, CaretIndex: 0 } && e.Key == Key.Back &&
+                blockPiece?.Spoiler is int spoiler && NoteFormat.UnwrapSpoiler(Text, spoiler) is { } unwrap)
+            {
+                EndEdit();
+                ApplyDocumentEdit(unwrap);
+                BeginEdit(lastSelection!.Value.Start);
+                e.Handled = true;
+            }
+            else if (blockEditor is { } field && blockPiece is { } active && e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                InsertLine(active, field);
                 e.Handled = true;
             }
             else if (blockEditor != null && e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.Shift && titleBox != null)
@@ -128,6 +134,24 @@ public sealed class NoteBodyEditor : UserControl
         };
         PreviewTextInput += (_, e) =>
         {
+            if (documentSelection && !string.IsNullOrEmpty(e.Text))
+            {
+                ReplaceSelection(e.Text);
+                e.Handled = true;
+                return;
+            }
+            if (pendingStyle != PaperInline.Style.Plain && !string.IsNullOrEmpty(e.Text))
+            {
+                var (start, length) = CurrentSelection();
+                var styled = PaperInline.Decorate(e.Text, pendingStyle);
+                pendingStyle = PaperInline.Style.Plain;
+                var visibleEnd = new PaperInline(styled).EndOffset(e.Text.Length);
+                EndEdit();
+                ApplyDocumentEdit(new NoteFormat.Edit(start, length, styled, visibleEnd));
+                BeginEdit(lastSelection!.Value.Start);
+                e.Handled = true;
+                return;
+            }
             if (IsEditing || !IsKeyboardFocused || string.IsNullOrEmpty(e.Text)) return;
             var selection = lastSelection ?? (Text.Length, 0);
             BeginEdit(selection.Item1);
@@ -139,7 +163,7 @@ public sealed class NoteBodyEditor : UserControl
             }
             e.Handled = true;
         };
-        IsKeyboardFocusWithinChanged += (_, _) => { if (!IsKeyboardFocusWithin && formatMenu?.IsOpen != true) EndEdit(); };
+        IsKeyboardFocusWithinChanged += (_, _) => { if (!IsWebActive && !IsKeyboardFocusWithin && formatMenu?.IsOpen != true) EndEdit(); };
         Loaded += (_, _) =>
         {
             owner = Window.GetWindow(this);
@@ -152,6 +176,68 @@ public sealed class NoteBodyEditor : UserControl
             EndEdit();
         };
         ToolTip = L.T("Щёлкните по тексту, чтобы писать. Щёлкните по квадратику, чтобы отметить пункт.");
+    }
+
+    private void InsertLine(RowCaret piece, PaperLineInput field)
+    {
+        if (documentSelection)
+        {
+            ReplaceSelection(NoteFormat.Newline(Text));
+            return;
+        }
+        if (piece.Table is { } table)
+        {
+            var next = EditableCaptions().Select(c => (RowCaret)c.Tag)
+                .FirstOrDefault(p => p.Table is { } cell && cell.Header == table.Header &&
+                    (cell.Row > table.Row || cell.Row == table.Row && cell.Column > table.Column));
+            var rowEnd = NoteFormat.LineEnd(Text, table.Row);
+            var target = next == null ? NoteFormat.AfterLine(Text, rowEnd) : RebaseOffset(renderedText, next.Raw(0));
+            EndEdit();
+            if (next == null && rowEnd == Text.Length)
+            {
+                var lineBreak = NoteFormat.Newline(Text);
+                ApplyDocumentEdit(new NoteFormat.Edit(rowEnd, 0, lineBreak, lineBreak.Length));
+                target += lineBreak.Length;
+            }
+            BeginEdit(target);
+            return;
+        }
+        if (piece.Spoiler is int spoiler)
+        {
+            EditSpoilerBody(spoiler);
+            return;
+        }
+        var (start, length) = CurrentSelection();
+        var visibleStart = piece.Start + field.SelectionStart;
+        var atEnd = length == 0 && visibleStart == piece.Inline.Text.Length;
+        if (atEnd) start = piece.Source + piece.Inline.RawLength;
+        var change = length == 0 ? NoteFormat.ContinueList(Text, start) : null;
+        var newline = NoteFormat.Newline(Text);
+        if (change == null && !atEnd && piece.Inline.HasMarkup)
+        {
+            var replacement = piece.Inline.Replace(visibleStart, field.SelectionLength, newline);
+            change = new NoteFormat.Edit(piece.Source, piece.Inline.RawLength, replacement, replacement.IndexOf('\n') + 1);
+        }
+        EndEdit();
+        ApplyDocumentEdit(change ?? new NoteFormat.Edit(start, length, newline, newline.Length));
+        BeginEdit(lastSelection!.Value.Start);
+    }
+
+    private void EditSpoilerBody(int spoiler)
+    {
+        EndEdit();
+        var headerEnd = NoteFormat.LineEnd(Text, spoiler);
+        var bodyStart = NoteFormat.AfterLine(Text, headerEnd);
+        var missingLine = bodyStart == headerEnd;
+        if (missingLine || NoteSpoilers.Closes(Text[bodyStart..NoteFormat.LineEnd(Text, bodyStart)]))
+        {
+            var newline = NoteFormat.Newline(Text);
+            ApplyDocumentEdit(new NoteFormat.Edit(bodyStart, 0, newline, missingLine ? newline.Length : 0));
+            bodyStart = lastSelection!.Value.Start;
+        }
+        openSpoilers.Add(spoiler);
+        InvalidateLines();
+        BeginEdit(bodyStart);
     }
 
     private void OwnerDeactivated(object? sender, EventArgs e) { if (formatMenu?.IsOpen != true) EndEdit(); }
@@ -175,10 +261,19 @@ public sealed class NoteBodyEditor : UserControl
 
     internal void OpenFormatMenu(Button anchor)
     {
+        if (IsWebActive) { SendWebCommand("format"); return; }
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
         formatMenu = menu;
-        var selection = blockEditor is { } field ? (blockSource + field.SelectionStart, field.SelectionLength) :
-            IsEditing ? (editor.SelectionStart, editor.SelectionLength) : lastSelection ?? (Text.Length, 0);
+        var selection = CurrentSelection();
+        var table = blockPiece != null ? blockPiece.Table : lastTable;
+        if (table is { } cell && cell.Header < Text.Length &&
+            TableCells(Text[cell.Header..NoteFormat.LineEnd(Text, cell.Header)]) is { } columns)
+        {
+            var commands = new MenuItem { Header = L.T("Правка таблицы") };
+            AddTableCommands(commands, action => Dispatcher.BeginInvoke(() => EditTable(cell, action)), cell.Row > cell.Header, columns.Length);
+            menu.Items.Add(commands);
+            menu.Items.Add(new Separator());
+        }
         foreach (var (kind, caption) in new[]
         {
             (NoteFormat.Kind.Bullet, L.T("•  Маркированный список")), (NoteFormat.Kind.Number, L.T("1.  Нумерованный список")),
@@ -188,23 +283,36 @@ public sealed class NoteBodyEditor : UserControl
             (NoteFormat.Kind.Strike, L.T("Зачёркнутый")), (NoteFormat.Kind.Code, L.T("Код"))
         })
         {
-            var item = new MenuItem { Header = caption };
+            var item = new MenuItem { Header = caption, IsEnabled = table == null || NoteFormat.InlineStyle(kind) != PaperInline.Style.Plain };
             if (kind == NoteFormat.Kind.Bold) item.FontWeight = FontWeights.Bold;
             if (kind == NoteFormat.Kind.Italic) item.FontStyle = FontStyles.Italic;
             item.Click += (_, _) => Dispatcher.BeginInvoke(() =>
             {
                 if (formatMenu != menu || !IsEnabled || !IsVisible) return;
                 formatMenu = null;
-                var start = Math.Min(selection.Item1, Text.Length);
-                var length = Math.Min(selection.Item2, Text.Length - start);
-                EndEdit();
-                ApplyDocumentEdit(NoteFormat.Apply(Text, start, length, kind));
-                Focus();
+                ApplyFormat(kind, selection);
             });
             menu.Items.Add(item);
         }
         menu.Closed += (_, _) => Dispatcher.BeginInvoke(() => { if (!IsKeyboardFocusWithin && formatMenu?.IsOpen != true) EndEdit(); });
         menu.IsOpen = true;
+    }
+
+    private void ApplyFormat(NoteFormat.Kind kind, (int Start, int Length) selection)
+    {
+        var start = Math.Clamp(selection.Start, 0, Text.Length);
+        var length = Math.Clamp(selection.Length, 0, Text.Length - start);
+        EndEdit();
+        var style = NoteFormat.InlineStyle(kind);
+        if (length == 0 && style != PaperInline.Style.Plain)
+        {
+            pendingStyle ^= style;
+            BeginEdit(start);
+            return;
+        }
+        pendingStyle = PaperInline.Style.Plain;
+        ApplyDocumentEdit(NoteFormat.Apply(Text, start, length, kind));
+        RestoreSelection();
     }
 
     private void ApplyEdit(NoteFormat.Edit change)
@@ -221,7 +329,12 @@ public sealed class NoteBodyEditor : UserControl
 
     private void ApplyDocumentEdit(NoteFormat.Edit change)
     {
-        SetCurrentValue(TextProperty, Text[..change.Start] + change.Text + Text[(change.Start + change.Length)..]);
+        applyingEdit = true;
+        try { SetCurrentValue(TextProperty, Text[..change.Start] + change.Text + Text[(change.Start + change.Length)..]); }
+        finally { applyingEdit = false; }
+        if (change.OpenSpoilerAt is int spoiler) openSpoilers.Add(spoiler);
+        documentSelection = false;
+        lastTable = null;
         lastSelection = (change.Start + change.SelectStart, change.SelectLength);
         resumeAt = lastSelection.Value.Start;
         InvalidateLines();
@@ -232,11 +345,25 @@ public sealed class NoteBodyEditor : UserControl
         for (var element = e.OriginalSource as DependencyObject; element != null && element != viewer;
              element = element is Visual ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element))
         {
-            if (element is ButtonBase or ScrollBar or Thumb or TextBox) return;
-            if (UseVisualEditing() && element is TextBlock { Tag: RowCaret piece } target)
+            if (element is ButtonBase or ScrollBar or Thumb or TextBoxBase) return;
+            if (element is Border { Child: PaperLineInput field } && ReferenceEquals(field, blockEditor))
             {
-                var clickedAt = CreateTextLines().GetCaretOffset(piece.DisplayText, e.GetPosition(target).X);
-                BeginBlock(target, piece, clickedAt);
+                field.Focus();
+                e.Handled = true;
+                return;
+            }
+            var target = element as TextBlock ?? (element as Border)?.Child as TextBlock;
+            if (target?.Tag is RowCaret piece && UseVisualEditing())
+            {
+                var clickedAt = CreateTextLines(target.FontWeight).GetCaretOffset(piece.DisplayText, e.GetPosition(target).X, piece.Inline, piece.Start);
+                var offsetAtClick = RebaseOffset(renderedText, piece.Raw(clickedAt));
+                if (renderedText == Text) BeginBlock(target, piece, clickedAt);
+                else
+                {
+                    EndEdit();
+                    BeginEdit(offsetAtClick);
+                }
+                BeginMouseSelection(offsetAtClick);
                 e.Handled = true;
                 return;
             }
@@ -251,7 +378,9 @@ public sealed class NoteBodyEditor : UserControl
                     }
                     else offset += CreateTextLines().GetCaretOffset(caption.Text, e.GetPosition(caption).X);
                 }
-                BeginEdit(offset);
+                var rebased = RebaseOffset(renderedText, offset);
+                EndEdit();
+                BeginEdit(rebased);
                 e.Handled = true;
                 return;
             }
@@ -260,10 +389,24 @@ public sealed class NoteBodyEditor : UserControl
         e.Handled = true;
     }
 
+    private int RebaseOffset(string previous, int offset)
+    {
+        if (previous == Text) return offset;
+        var prefix = 0;
+        var current = Text;
+        while (prefix < previous.Length && prefix < current.Length && previous[prefix] == current[prefix]) prefix++;
+        if (offset < prefix) return offset;
+        var oldEnd = previous.Length;
+        var newEnd = current.Length;
+        while (oldEnd > prefix && newEnd > prefix && previous[oldEnd - 1] == current[newEnd - 1]) { oldEnd--; newEnd--; }
+        return offset >= oldEnd ? offset + newEnd - oldEnd : prefix;
+    }
+
     private static void TextUpdated(DependencyObject obj, DependencyPropertyChangedEventArgs args)
     {
         var self = (NoteBodyEditor)obj;
         if (self.editor == null) return;
+        self.QueueWebSync();
         if (self.blockEditor != null && !self.writingBlock) self.EndEdit();
         self.updating = true;
         try
@@ -278,14 +421,40 @@ public sealed class NoteBodyEditor : UserControl
         }
         finally { self.updating = false; }
 
-        if (!self.IsEditing && !self.toggling)
+        if (self.writingBlock || self.applyingEdit)
+            self.UpdateSpoilers((string)args.OldValue, (string)args.NewValue);
+        else if (!self.IsEditing && !self.toggling)
         {
             self.lastSelection = null;
+            self.lastTable = null;
+            self.documentSelection = false;
+            self.pendingStyle = PaperInline.Style.Plain;
             self.openSpoilers.Clear();
             self.InvalidateLines();
             self.viewer.ScrollToHome();
         }
         self.TextChanged?.Invoke(self, new TextChangedEventArgs(TextBox.TextChangedEvent, UndoAction.None));
+    }
+
+    private void UpdateSpoilers(string previous, string current)
+    {
+        if (openSpoilers.Count == 0) return;
+        var start = 0;
+        while (start < previous.Length && start < current.Length && previous[start] == current[start]) start++;
+        var oldEnd = previous.Length;
+        var newEnd = current.Length;
+        while (oldEnd > start && newEnd > start && previous[oldEnd - 1] == current[newEnd - 1]) { oldEnd--; newEnd--; }
+        var offsets = openSpoilers.ToArray();
+        openSpoilers.Clear();
+        foreach (var offset in offsets)
+        {
+            var next = offset >= oldEnd ? offset + newEnd - oldEnd : offset;
+            if (IsSpoilerAt(next)) openSpoilers.Add(next);
+            else if (IsSpoilerAt(offset)) openSpoilers.Add(offset);
+        }
+
+        bool IsSpoilerAt(int index) => index >= 0 && index < current.Length && (index == 0 || current[index - 1] == '\n') &&
+            NoteSpoilers.Label(current[index..NoteFormat.LineEnd(current, index)]) != null;
     }
 
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
@@ -304,7 +473,30 @@ public sealed class NoteBodyEditor : UserControl
     }
 
     internal void ConnectPictures(NotePictures layer) => pictures = layer;
-    internal void ReflowPictures() => InvalidateLines();
+    internal void ReflowPictures()
+    {
+        QueueWebSync();
+        if (!IsWebActive) InvalidateLines();
+    }
+
+    internal (double Offset, double Height) PictureViewport()
+    {
+        if (lines.Children.Count == 0) return (0, ActualHeight);
+        var first = VisualTreeHelper.GetOffset(lines.Children[0]).Y;
+        var last = lines.Children[lines.Children.Count - 1];
+        var bottom = VisualTreeHelper.GetOffset(last).Y + last.RenderSize.Height;
+        return (Math.Max(0, -first), Math.Max(ActualHeight, bottom - first));
+    }
+
+    internal int PictureAnchor(bool useCaret = true) => Text.Length == 0 ? 0 :
+        Text.AsSpan(0, useCaret && IsEditing ? Math.Clamp(CaretIndex, 0, Text.Length) : Text.Length).Count('\n') + 1;
+
+    internal bool ScrollOverPicture(int delta)
+    {
+        var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, delta) { RoutedEvent = MouseWheelEvent };
+        viewer.RaiseEvent(wheel);
+        return wheel.Handled;
+    }
 
     internal int ParagraphAt(Point point)
     {
@@ -374,14 +566,17 @@ public sealed class NoteBodyEditor : UserControl
 
     private sealed record RowCaret(int Source, int Start, int Length, PaperInline Inline, bool Cell = false, string EmptyPrefix = "")
     {
+        internal TableLocation? Table { get; init; }
+        internal int? Spoiler { get; init; }
         internal string DisplayText => Inline.Text.Substring(Start, Length);
-        internal int Raw(int offset) => Source + Inline.SourceOffset(Start + offset);
+        internal int Raw(int offset) => Source + (offset == Length && Length > 0 ? Inline.EndOffset(Start + offset) : Inline.SourceOffset(Start + offset));
+        internal int Visible(int raw) => Math.Clamp(Inline.VisibleOffset(raw - Source) - Start, 0, Length);
     }
 
     private static bool HasVisualBlocks(string text) =>
         Checklist.Read(text).Count > 0 || new PaperInline(text).HasMarkup || text.Split('\n').Any(line =>
             line.StartsWith("## ", StringComparison.Ordinal) || line.StartsWith("- ", StringComparison.Ordinal) ||
-            line.StartsWith("> ", StringComparison.Ordinal) || NoteSpoilers.Label(line) != null || TableCells(line) != null);
+            line.StartsWith("> ", StringComparison.Ordinal) || NoteFormat.NumberPrefix(line) > 0 || NoteSpoilers.Label(line) != null || TableCells(line) != null);
 
     private bool UseVisualEditing() => pictures?.TextFrames.Any() == true || HasVisualBlocks(Text);
 
@@ -402,49 +597,65 @@ public sealed class NoteBodyEditor : UserControl
         if (blockEditor != null) EndEdit();
         if (EditingPlainText) EndEdit();
         if (caption.Parent is not (Panel or Border)) return;
-        var original = Text;
-        var field = new TextBox
+        var field = new PaperLineInput
         {
-            Style = (Style)Application.Current.FindResource("PaperEditor"),
-            Text = piece.DisplayText, FontFamily = caption.FontFamily, FontSize = caption.FontSize,
+            FontFamily = caption.FontFamily, FontSize = caption.FontSize,
             FontWeight = caption.FontWeight, Foreground = caption.Foreground,
-            Padding = new Thickness(0), Margin = caption.Margin, VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            TextWrapping = TextWrapping.NoWrap
+            CaretBrush = Foreground, Margin = caption.Margin, VerticalContentAlignment = VerticalAlignment.Center,
+            ContextMenu = caption.ContextMenu
         };
+        field.SetRuns(piece.Inline, piece.Start, piece.Length);
         blockEditor = field;
         blockCaption = caption;
-        blockSource = piece.Raw(0);
+        blockPiece = piece;
         SetValue(IsEditingPropertyKey, true);
         IsEditingChanged?.Invoke(this, EventArgs.Empty);
         SwapCaption(caption, field);
         field.TextChanged += (_, _) =>
         {
-            if (blockEditor != field) return;
-            var before = piece.DisplayText;
+            if (blockEditor != field || writingBlock || blockPiece is not { } current) return;
+            var before = current.DisplayText;
             var after = field.Text.Replace('\r', ' ').Replace('\n', ' ');
-            if (piece.Cell) after = after.Replace('|', '¦');
+            if (current.Cell) after = after.Replace('|', '¦');
             var prefix = 0;
             while (prefix < before.Length && prefix < after.Length && before[prefix] == after[prefix]) prefix++;
             var beforeEnd = before.Length;
             var afterEnd = after.Length;
             while (beforeEnd > prefix && afterEnd > prefix && before[beforeEnd - 1] == after[afterEnd - 1])
             { beforeEnd--; afterEnd--; }
-            var start = piece.Raw(prefix);
-            var end = beforeEnd == prefix ? start : piece.Raw(beforeEnd - 1) + 1;
-            writingBlock = true;
             var insertion = after[prefix..afterEnd];
-            if (before.Length == 0 && insertion.Length > 0) insertion = piece.EmptyPrefix + insertion;
-            try { SetCurrentValue(TextProperty, original[..start] + insertion + original[end..]); }
+            var changed = current.Inline.Replace(current.Start + prefix, beforeEnd - prefix, insertion);
+            var inline = new PaperInline(changed);
+            writingBlock = true;
+            try
+            {
+                SetCurrentValue(TextProperty, Text[..current.Source] + current.EmptyPrefix + changed + Text[(current.Source + current.Inline.RawLength)..]);
+                var visible = Math.Clamp(before.Length + inline.Text.Length - current.Inline.Text.Length, 0, inline.Text.Length - current.Start);
+                blockPiece = current with { Source = current.Source + current.EmptyPrefix.Length, Inline = inline, Length = visible, EmptyPrefix = "" };
+                var caretIndex = field.CaretIndex;
+                if (field.Text != blockPiece.DisplayText)
+                {
+                    field.SetRuns(inline, blockPiece.Start, visible);
+                    field.CaretIndex = Math.Clamp(caretIndex + field.Text.Length - after.Length, 0, field.Text.Length);
+                }
+            }
             finally { writingBlock = false; }
         };
         DataObject.AddPastingHandler(field, (_, e) =>
         {
-            if (blockEditor != field || piece.Cell || e.DataObject.GetData(DataFormats.UnicodeText) is not string pasted ||
-                !pasted.Contains('\n')) return;
-            var start = Math.Clamp(blockSource + field.SelectionStart, 0, Text.Length);
-            var length = Math.Min(field.SelectionLength, Text.Length - start);
+            if (blockEditor != field || e.DataObject.GetData(DataFormats.UnicodeText) is not string pasted) { e.CancelCommand(); return; }
+            if (!pasted.Contains('\n') && !pasted.Contains('\r'))
+            {
+                e.FormatToApply = DataFormats.UnicodeText;
+                return;
+            }
+            var (start, length) = CurrentSelection();
             e.CancelCommand();
+            if (piece.Cell)
+            {
+                field.SelectedText = pasted.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+                return;
+            }
             EndEdit();
             ApplyDocumentEdit(new NoteFormat.Edit(start, length, pasted, pasted.Length));
             BeginEdit(lastSelection!.Value.Start);
@@ -469,6 +680,7 @@ public sealed class NoteBodyEditor : UserControl
     {
         if (blockEditor != null || width <= 0 || !double.IsFinite(width) || Math.Abs(width - formattedWidth) < .01) return;
         formattedWidth = width;
+        renderedText = Text;
         lines.Children.Clear();
         wrap = null;
         lines.LineHeight = Math.Ceiling(FontSize * FontFamily.LineSpacing) + 2;
@@ -476,7 +688,8 @@ public sealed class NoteBodyEditor : UserControl
         var inset = glyphSize + 6;
         var tasks = Checklist.Read(Text).ToDictionary(task => task.LineIndex);
         var paragraphs = Text.Split('\n');
-        var flow = pictures?.TextFrames.OrderBy(picture => picture.Layout.Anchor).ToArray() ?? [];
+        var flow = pictures?.TextFrames.OrderBy(picture => picture.Layout.Anchor)
+            .ThenBy(picture => picture.Layout.Mode == ImageTextMode.Wrap).ToArray() ?? [];
         var pictureIndex = 0;
         void InsertPictures(int paragraph, int offset)
         {
@@ -493,6 +706,7 @@ public sealed class NoteBodyEditor : UserControl
         var resumeLine = 0;
         var insideSpoiler = false;
         var spoilerHidden = false;
+        int? emptySpoilerBody = null;
         for (var index = 0; index < paragraphs.Length; index++)
         {
             var lineOffset = sourceOffset;
@@ -502,6 +716,7 @@ public sealed class NoteBodyEditor : UserControl
             if (insideSpoiler && NoteSpoilers.Closes(paragraph))
             {
                 insideSpoiler = spoilerHidden = false;
+                emptySpoilerBody = null;
                 continue;
             }
             if (!insideSpoiler && NoteSpoilers.Label(paragraph) is { } spoiler)
@@ -510,6 +725,18 @@ public sealed class NoteBodyEditor : UserControl
                 spoilerHidden = !openSpoilers.Contains(lineOffset);
                 if (lineOffset <= resumeAt) resumeLine = lines.Children.Count;
                 AddSpoiler(spoiler, lineOffset, paragraph, spoilerHidden);
+                if (!spoilerHidden)
+                {
+                    var next = index + 1;
+                    if (next == paragraphs.Length || NoteSpoilers.Closes(paragraphs[next]))
+                        AddSpoilerPrompt(lineOffset);
+                    else
+                    {
+                        while (next < paragraphs.Length && string.IsNullOrWhiteSpace(paragraphs[next])) next++;
+                        if (next == paragraphs.Length || NoteSpoilers.Closes(paragraphs[next]))
+                            emptySpoilerBody = sourceOffset;
+                    }
+                }
                 continue;
             }
             if (spoilerHidden) continue;
@@ -521,12 +748,12 @@ public sealed class NoteBodyEditor : UserControl
                 // Keep a table at its full width once a wrapped picture has reserved its rows.
                 wrap = null;
                 if (lineOffset <= resumeAt) resumeLine = lines.Children.Count;
-                AddTableRow(header, width, lineOffset, true, formatter);
+                AddTableRow(header, width, lineOffset, lineOffset, formatter);
                 sourceOffset += paragraphs[++index].Length + 1;
                 while (index + 1 < paragraphs.Length && TableCells(paragraphs[index + 1]) is { } cells && cells.Length == header.Length)
                 {
                     if (sourceOffset <= resumeAt) resumeLine = lines.Children.Count;
-                    AddTableRow(cells, width, sourceOffset, false, formatter);
+                    AddTableRow(cells, width, sourceOffset, lineOffset, formatter);
                     sourceOffset += paragraphs[++index].Length + 1;
                 }
                 continue;
@@ -551,12 +778,18 @@ public sealed class NoteBodyEditor : UserControl
                     label = label[2..];
                     prefix = 2;
                 }
+                else if (NoteFormat.NumberPrefix(label) is var number && number > 0)
+                {
+                    marker = label[..number].Trim();
+                    label = label[number..];
+                    prefix = number;
+                }
             }
 
             var inline = new PaperInline(label);
             var taskLabels = task == null ? null : new List<TextBlock>();
             var font = weight == FontWeights.Normal ? wrapping : CreateTextLines(weight);
-            var decoration = task != null || marker.Length > 0 ? inset : 0;
+            var decoration = task != null ? inset : marker.Length == 0 ? 0 : Math.Max(inset, Math.Ceiling(FontSize * .65 * marker.Length + 5));
             foreach (var (offset, text) in font.Wrap(formatter, inline.Text, () => (wrap?.Width ?? width) - decoration, inline))
             {
                 var caret = lineOffset + prefix + inline.SourceOffset(offset);
@@ -566,6 +799,11 @@ public sealed class NoteBodyEditor : UserControl
                 caption.Margin = new Thickness(decoration, 0, 0, 0);
                 caption.Tag = new RowCaret(lineOffset + prefix, offset, text.Length, inline);
                 inline.Write(caption, offset, text.Length);
+                if (emptySpoilerBody == lineOffset && offset == 0)
+                {
+                    caption.Text = L.T("Написать внутри…");
+                    caption.Opacity = .68;
+                }
                 row.Children.Add(caption);
                 if (task != null && taskLabels != null)
                 {
@@ -574,12 +812,13 @@ public sealed class NoteBodyEditor : UserControl
                     if (offset == 0) row.Children.Add(CreateCheck(task, glyphSize, taskLabels));
                 }
                 if (offset == 0 && marker.Length > 0)
-                    row.Children.Add(new TextBlock { Text = marker, Width = inset, FontSize = FontSize, Foreground = Foreground,
+                    row.Children.Add(new TextBlock { Text = marker, Width = decoration, FontSize = FontSize, Foreground = Foreground,
                         HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false });
                 AddTextRow(row);
             }
         }
         InsertPictures(paragraphs.Length, Text.Length);
+        if (documentSelection) PaintSelection();
         if (resumeAt != null)
         {
             resumeAt = null;
@@ -604,10 +843,13 @@ public sealed class NoteBodyEditor : UserControl
             ToolTip = hidden ? L.T("Показать скрытый текст") : L.T("Свернуть спойлер")
         };
         System.Windows.Automation.AutomationProperties.SetName(toggle, label + (hidden ? L.T(", раскрыть") : L.T(", свернуть")));
+        var snapshot = renderedText;
         toggle.Click += (_, _) =>
         {
-            if (!openSpoilers.Add(offset)) openSpoilers.Remove(offset);
-            resumeAt = offset;
+            var currentOffset = RebaseOffset(snapshot, offset);
+            EndEdit();
+            if (!openSpoilers.Add(currentOffset)) openSpoilers.Remove(currentOffset);
+            resumeAt = currentOffset;
             InvalidateLines();
         };
         var labelOffset = source.IndexOf(":::spoiler", StringComparison.Ordinal) + ":::spoiler".Length;
@@ -616,7 +858,8 @@ public sealed class NoteBodyEditor : UserControl
         var caption = Caption(FontWeights.SemiBold);
         title.Write(caption, 0, title.Text.Length);
         if (title.Text.Length == 0) caption.Text = label;
-        caption.Tag = new RowCaret(offset + labelOffset, 0, title.Text.Length, title, EmptyPrefix: " ");
+        caption.Tag = new RowCaret(offset + labelOffset, 0, title.Text.Length, title,
+            EmptyPrefix: labelOffset == source.Length && !source.EndsWith(' ') ? " " : "") { Spoiler = offset };
         var row = new Grid { Height = lines.LineHeight, Tag = offset, Background = Brushes.Transparent };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition());
@@ -624,6 +867,20 @@ public sealed class NoteBodyEditor : UserControl
         row.Children.Add(toggle);
         row.Children.Add(caption);
         AddTextRow(row);
+    }
+
+    private void AddSpoilerPrompt(int offset)
+    {
+        var snapshot = renderedText;
+        var prompt = new Button
+        {
+            Content = L.T("Написать внутри…"), Style = (Style)FindResource("PaperButton"),
+            FontFamily = FontFamily, FontSize = FontSize, Foreground = Foreground, Opacity = .68,
+            HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(1, 0, 5, 0),
+            Height = lines.LineHeight, MinHeight = 0
+        };
+        prompt.Click += (_, _) => EditSpoilerBody(RebaseOffset(snapshot, offset));
+        AddTextRow(prompt);
     }
 
     internal static string[]? TableCells(string line)
@@ -636,31 +893,34 @@ public sealed class NoteBodyEditor : UserControl
     internal static bool IsTableDivider(IEnumerable<string> cells) =>
         cells.All(cell => cell.Trim(':') is { Length: >= 3 } rule && rule.All(c => c == '-'));
 
-    private void AddTableRow(string[] cells, double width, int source, bool header, TextFormatter formatter)
+    private void AddTableRow(string[] cells, double width, int source, int headerOffset, TextFormatter formatter)
     {
+        var header = source == headerOffset;
         var weight = header ? FontWeights.SemiBold : FontWeights.Normal;
         var font = CreateTextLines(weight);
         var content = cells.Select(cell => new PaperInline(cell)).ToArray();
-        var wrapped = content.Select(inline => font.Wrap(formatter, inline.Text, width / cells.Length - 10, inline).ToArray()).ToArray();
-        var borderBrush = PaperPalette.Brush("#736246");
+        var inset = Math.Clamp(width / cells.Length * .045, 2, 8);
+        var wrapped = content.Select(inline => font.Wrap(formatter, inline.Text, width / cells.Length - inset * 2 - 2, inline).ToArray()).ToArray();
+        var borderBrush = PaperPalette.Brush("#65605242");
+        var headerFill = PaperPalette.Brush("#14564B35");
         var height = wrapped.Max(cell => cell.Length);
         for (var line = 0; line < height; line++)
         {
-            var row = new Grid { Height = lines.LineHeight, Tag = source, Background = Brushes.Transparent };
+            var row = new Grid { Height = lines.LineHeight, Tag = source, Background = Brushes.Transparent, SnapsToDevicePixels = true };
             for (var column = 0; column < cells.Length; column++)
             {
                 row.ColumnDefinitions.Add(new ColumnDefinition());
                 var caption = Caption(weight);
                 var cellOffset = TableCellOffset(Text, source, column);
-                if (line < wrapped[column].Length)
-                {
-                    var (offset, text) = wrapped[column][line];
-                    content[column].Write(caption, offset, text.Length);
-                    caption.Tag = new RowCaret(cellOffset, offset, text.Length, content[column], Cell: true);
-                }
+                var location = new TableLocation(headerOffset, source, column);
+                caption.ContextMenu = TableMenu(location, cells.Length);
+                var (offset, text) = line < wrapped[column].Length ? wrapped[column][line] : (content[column].Text.Length, "");
+                content[column].Write(caption, offset, text.Length);
+                caption.Tag = new RowCaret(cellOffset, offset, text.Length, content[column], Cell: true) { Table = location };
                 var cell = new Border
                 {
-                    Child = caption, Padding = new Thickness(4, 0, 4, 0), BorderBrush = borderBrush, ClipToBounds = true,
+                    Child = caption, Padding = new Thickness(inset, 0, inset, 0), BorderBrush = borderBrush, ClipToBounds = true,
+                    Background = header ? headerFill : Brushes.Transparent, ContextMenu = caption.ContextMenu,
                     BorderThickness = new Thickness(column == 0 ? 1 : 0, header && line == 0 ? 1 : 0, 1, line == height - 1 ? 1 : 0)
                 };
                 Grid.SetColumn(cell, column);
@@ -709,18 +969,31 @@ public sealed class NoteBodyEditor : UserControl
 
     private void BeginEdit(int offset)
     {
+        if (IsWebActive)
+        {
+            webEditor?.Focus();
+            SendWebCommand("focus");
+            return;
+        }
         if (IsEditing) return;
+        offset = Math.Clamp(offset, 0, Text.Length);
         if (UseVisualEditing())
         {
             viewer.UpdateLayout();
+            var lineStart = NoteFormat.LineStart(Text, offset);
+            var lineEnd = NoteFormat.LineEnd(Text, offset);
             var target = EditableCaptions().OrderBy(c =>
+            {
+                var source = ((RowCaret)c.Tag).Source;
+                return source < lineStart || source > lineEnd;
+            }).ThenBy(c =>
             {
                 var piece = (RowCaret)c.Tag;
                 return Math.Abs(offset - Math.Clamp(offset, piece.Raw(0), piece.Raw(piece.Length)));
             }).FirstOrDefault();
             if (target?.Tag is RowCaret row)
             {
-                BeginBlock(target, row, offset - row.Raw(0));
+                BeginBlock(target, row, row.Visible(offset));
                 return;
             }
         }
@@ -738,13 +1011,21 @@ public sealed class NoteBodyEditor : UserControl
 
     public void EndEdit()
     {
+        if (IsWebActive)
+        {
+            SendWebCommand("blur");
+            SetWebEditing(false);
+            return;
+        }
         if (!IsEditing) return;
         if (blockEditor is { } field && blockCaption is { } caption)
         {
-            lastSelection = (Math.Clamp(blockSource + field.SelectionStart, 0, Text.Length), field.SelectionLength);
+            lastSelection = CurrentSelection();
+            lastTable = blockPiece?.Table;
             resumeAt = CaretIndex;
             blockEditor = null;
             blockCaption = null;
+            blockPiece = null;
             SetValue(IsEditingPropertyKey, false);
             SwapCaption(field, caption);
             IsEditingChanged?.Invoke(this, EventArgs.Empty);
@@ -754,6 +1035,7 @@ public sealed class NoteBodyEditor : UserControl
         SetValue(IsEditingPropertyKey, false);
         IsEditingChanged?.Invoke(this, EventArgs.Empty);
         lastSelection = (editor.SelectionStart, editor.SelectionLength);
+        lastTable = null;
         resumeAt = editor.CaretIndex;
         editor.Visibility = Visibility.Collapsed;
         viewer.Visibility = Visibility.Visible;
@@ -762,10 +1044,14 @@ public sealed class NoteBodyEditor : UserControl
 
     internal void ResetNavigation()
     {
+        navigationRevision++;
         if (formatMenu != null) formatMenu.IsOpen = false;
         formatMenu = null;
         EndEdit();
         lastSelection = null;
+        lastTable = null;
+        documentSelection = false;
+        pendingStyle = PaperInline.Style.Plain;
         openSpoilers.Clear();
         InvalidateLines();
         resumeAt = null;
@@ -776,7 +1062,7 @@ public sealed class NoteBodyEditor : UserControl
         editor.IsUndoEnabled = true;
     }
 
-    public void FocusForInput() { if (string.IsNullOrEmpty(Text)) BeginEdit(); else Focus(); }
+    public void FocusForInput() { if (IsWebActive || string.IsNullOrEmpty(Text)) BeginEdit(); else Focus(); }
 
     private sealed class WholeLinePanel(Action<double> reflow) : StackPanel
     {

@@ -39,4 +39,6 @@ Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your n
 
 On Windows, install the .NET SDK specified in `global.json` and run `dotnet build PaperDesk.sln -c Release`. To run the built app, use `dotnet run --project PaperDesk.Desktop -c Release`.
 
+The Windows editor uses Tiptap and ProseMirror inside Microsoft Edge WebView2. The editor bundle ships with the application and works offline. On PCs without the WebView2 Runtime, PaperDesk opens the built-in Windows editor. To rebuild the editor bundle after changing it, run `npm ci` and `npm run build` in `PaperDesk.Desktop/WebEditor`.
+
 The first preview is being prepared. The repository is private while the release and license are being finalized.

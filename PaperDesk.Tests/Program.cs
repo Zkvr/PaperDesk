@@ -63,6 +63,18 @@ var tests = new (string Name, Action Run)[]
         Equal("Первый текст 🌿", reopened.Find(n.Id)!.Note.Body);
         Equal(1, reopened.Pending().Count);
     })),
+    ("An invalid SQLite file is preserved and can be moved after a failed open", () => WithPath(path => {
+        var bytes = Encoding.UTF8.GetBytes("synthetic damaged SQLite file");
+        File.WriteAllBytes(path, bytes);
+        try
+        {
+            using var damaged = new NoteStore(path);
+            throw new Exception("A damaged SQLite file was opened");
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException) { }
+        using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None)) { }
+        Equal(true, File.ReadAllBytes(path).SequenceEqual(bytes));
+    })),
     ("A delayed ACK preserves a newer local edit", () => WithStore(s => {
         var n = new Note { Body = "one" }; s.Save(n); var op = s.Pending().Single();
         s.Save(n with { Body = "two" }); s.Acknowledge(op, n with { Revision = 1 });

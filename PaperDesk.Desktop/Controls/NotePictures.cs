@@ -21,7 +21,8 @@ public sealed class NotePictures : Canvas
     {
         ClipToBounds = true;
         Focusable = false;
-        SizeChanged += (_, _) => { foreach (var picture in pictures) Place(picture); };
+        SizeChanged += (_, _) => RefreshOverlays();
+        MouseWheel += (_, e) => { if (body?.ScrollOverPicture(e.Delta) == true) e.Handled = true; };
         Unloaded += (_, _) => preview?.Close();
     }
 
@@ -29,7 +30,7 @@ public sealed class NotePictures : Canvas
     {
         body = editor;
         body.ConnectPictures(this);
-        editor.IsEditingChanged += (_, _) => Visibility = editor.EditingPlainText ? Visibility.Hidden : Visibility.Visible;
+        editor.IsEditingChanged += (_, _) => UpdateVisibility();
         paper.AllowDrop = true;
         paper.PreviewDragOver += (_, e) =>
         {
@@ -45,9 +46,23 @@ public sealed class NotePictures : Canvas
         };
     }
 
-    internal bool Paste()
+    internal void UpdateVisibility() =>
+        Visibility = body is { } editor && (editor.EditingPlainText || editor.IsWebActive) ? Visibility.Hidden : Visibility.Visible;
+
+    internal (NoteStore Store, Guid Id, bool CanAttach)? WebNote =>
+        store is { } target && noteId is Guid id ? (target, id, editable) : null;
+
+    internal void WebPicture(Guid image, string action)
     {
-        try { return Clipboard.GetDataObject() is { } data && TryAttach(data); }
+        if (store is not { } target || noteId is not Guid note) return;
+        if (action == "open") OpenBound(target, note, image);
+        if (action == "copy" && ReadBoundImage(target, note, image) is { } png) Copy(Decode(png));
+        if (action == "remove") Remove(target, note, image);
+    }
+
+    internal bool Paste(int? anchor = null)
+    {
+        try { return Clipboard.GetDataObject() is { } data && TryAttach(data, anchor: anchor); }
         catch (ExternalException) { ShowError("Буфер обмена занят. Попробуйте ещё раз."); return true; }
     }
 
@@ -67,11 +82,7 @@ public sealed class NotePictures : Canvas
         foreach (var (image, position) in saved)
         {
             if (nextStore.ReadImage(note, image) is not { } png || Decode(png, 768) is not { } bitmap) continue;
-            var index = pictures.Count;
-            var textHeight = body is { Text.Length: > 0 } editor
-                ? (editor.Text.Count(c => c == '\n') + 1) * (editor.FontSize * 1.3) : 0;
-            var top = ActualHeight > 0 ? Math.Clamp((textHeight + 20) / ActualHeight, .12, .52) : .14;
-            var layout = position ?? new NoteImageLayout(.18 + index % 3 * .06, top + index * .06, .64);
+            var layout = position ?? InlineLayout(body?.PictureAnchor(useCaret: false) ?? 0);
             var picture = new Picture(image, layout, (double)bitmap.PixelWidth / bitmap.PixelHeight);
             var content = new Grid();
             content.Children.Add(new Image { Source = bitmap, Stretch = Stretch.Fill, IsHitTestVisible = false });
@@ -115,6 +126,7 @@ public sealed class NotePictures : Canvas
                     item.Click += (_, _) =>
                     {
                         item.IsChecked = true;
+                        menu.IsOpen = false;
                         SetMode(nextStore, note, picture, mode);
                     };
                     arrangement.Items.Add(item);
@@ -137,6 +149,11 @@ public sealed class NotePictures : Canvas
 
     internal IEnumerable<(Border Frame, NoteImageLayout Layout, double Ratio)> TextFrames =>
         pictures.Where(p => p.Layout.Mode != ImageTextMode.Overlay).Select(p => (p.Frame, p.Layout, p.Ratio));
+
+    internal void RefreshOverlays()
+    {
+        foreach (var picture in pictures) Place(picture);
+    }
 
     private sealed class Picture(Guid id, NoteImageLayout layout, double ratio)
     {
@@ -172,18 +189,20 @@ public sealed class NotePictures : Canvas
         var layout = picture.Layout;
         var width = Math.Min(layout.Width * ActualWidth, ActualHeight * picture.Ratio);
         var height = width / picture.Ratio;
+        var (scroll, contentHeight) = body?.PictureViewport() ?? (0, ActualHeight);
         picture.Frame.Width = width;
         picture.Frame.Height = height;
         SetLeft(picture.Frame, Math.Clamp(layout.X * ActualWidth, 0, Math.Max(0, ActualWidth - width)));
-        SetTop(picture.Frame, Math.Clamp(layout.Y * ActualHeight, 0, Math.Max(0, ActualHeight - height)));
+        SetTop(picture.Frame, Math.Clamp(layout.Y * ActualHeight, 0, Math.Max(0, contentHeight - height)) - scroll);
     }
 
     private void MovePicture(Picture picture, double dx, double dy)
     {
         if (picture.Layout.Mode != ImageTextMode.Overlay) { picture.MovingInText = true; return; }
         var frame = picture.Frame;
+        var (scroll, contentHeight) = body?.PictureViewport() ?? (0, ActualHeight);
         var x = Math.Clamp(GetLeft(frame) + dx, 0, Math.Max(0, ActualWidth - frame.Width));
-        var y = Math.Clamp(GetTop(frame) + dy, 0, Math.Max(0, ActualHeight - frame.Height));
+        var y = Math.Clamp(GetTop(frame) + scroll + dy, 0, Math.Max(0, contentHeight - frame.Height));
         picture.Layout = picture.Layout with { X = x / ActualWidth, Y = y / ActualHeight };
         Place(picture);
     }
@@ -201,9 +220,10 @@ public sealed class NotePictures : Canvas
             picture.Layout = (picture.Layout with { Width = frame.Width / ActualWidth }).Bounded();
             return;
         }
+        var (scroll, contentHeight) = body?.PictureViewport() ?? (0, ActualHeight);
         var x = GetLeft(frame);
-        var y = GetTop(frame);
-        var limit = Math.Max(0, Math.Min(ActualWidth - x, (ActualHeight - y) * picture.Ratio));
+        var y = GetTop(frame) + scroll;
+        var limit = Math.Max(0, Math.Min(ActualWidth - x, (contentHeight - y) * picture.Ratio));
         var delta = Math.Abs(dx) >= Math.Abs(dy * picture.Ratio) ? dx : dy * picture.Ratio;
         var width = Math.Clamp(frame.Width + delta, Math.Min(32, limit), limit);
         picture.Layout = (picture.Layout with { X = x / ActualWidth, Y = y / ActualHeight, Width = width / ActualWidth }).Bounded();
@@ -235,17 +255,22 @@ public sealed class NotePictures : Canvas
 
     private void SetMode(NoteStore target, Guid note, Picture picture, ImageTextMode mode)
     {
-        if (target != store || noteId != note || !editable || picture.Layout.Mode == mode) return;
+        if (target != store || noteId != note || !editable || !pictures.Contains(picture) || picture.Layout.Mode == mode) return;
+        body?.EndEdit();
         var layout = picture.Layout with { Mode = mode };
         if (body != null && picture.Layout.Mode == ImageTextMode.Overlay)
             layout = layout with
             {
-                Anchor = body.ParagraphAt(new Point(GetLeft(picture.Frame), GetTop(picture.Frame) + picture.Frame.Height * .2))
+                Anchor = body.ParagraphAt(picture.Frame.TranslatePoint(new Point(0, picture.Frame.Height * .2), body))
             };
         if (body != null && mode == ImageTextMode.Overlay && picture.Frame.IsVisible)
         {
             var position = picture.Frame.TranslatePoint(new Point(), body);
-            layout = layout with { X = position.X / Math.Max(1, ActualWidth), Y = position.Y / Math.Max(1, ActualHeight) };
+            layout = layout with
+            {
+                X = position.X / Math.Max(1, ActualWidth),
+                Y = (position.Y + body.PictureViewport().Offset) / Math.Max(1, ActualHeight)
+            };
         }
         selected = picture.Id;
         target.SaveImageLayout(note, picture.Id, layout);
@@ -265,14 +290,14 @@ public sealed class NotePictures : Canvas
         data.GetDataPresent(DataFormats.FileDrop, false) &&
         data.GetData(DataFormats.FileDrop, false) is string[] paths && paths.Any(IsImageFile);
 
-    internal bool TryAttach(IDataObject data, Point? drop = null)
+    internal bool TryAttach(IDataObject data, Point? drop = null, int? anchor = null)
     {
         if (!editable || store == null || noteId is not Guid note) return false;
         try
         {
             if (!CanAttach(data)) return false;
-            var position = drop is { } point && ActualWidth > 0 && ActualHeight > 0
-                ? new NoteImageLayout(point.X / ActualWidth - .32, point.Y / ActualHeight - .12, .64).Bounded() : null;
+            var position = anchor.HasValue ? InlineLayout(anchor.Value) : drop is { } point && body != null
+                ? InlineLayout(body.ParagraphAt(TranslatePoint(point, body))) : null;
             if (data.GetData(DataFormats.FileDrop, false) is string[] paths && paths.Any(IsImageFile))
                 AttachFiles(paths.Where(IsImageFile).ToArray(), position);
             else if (data.GetData(DataFormats.Bitmap) is BitmapSource bitmap)
@@ -329,10 +354,23 @@ public sealed class NotePictures : Canvas
 
     private void Attach(NoteStore target, Guid note, IReadOnlyList<byte[]> images, NoteImageLayout? position)
     {
-        if (!target.AddImages(note, images, position)) { ShowError("В заметке помещается до восьми изображений."); return; }
+        if (!target.AddImages(note, images, position ?? InlineLayout(body?.PictureAnchor() ?? 0)))
+        {
+            ShowError("В заметке помещается до восьми изображений.");
+            return;
+        }
+        if (body?.IsWebActive != true) body?.EndEdit();
         Bind(target, note, editable);
-        if (pictures.LastOrDefault() is { } picture) Select(picture.Id);
+        if (pictures.LastOrDefault() is not { } picture) return;
+        Select(picture.Id);
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+        {
+            if (target == store && noteId == note && pictures.Contains(picture))
+                picture.Frame.BringIntoView();
+        });
     }
+
+    private static NoteImageLayout InlineLayout(int anchor) => new(.18, .14, .64, ImageTextMode.Inline, anchor);
 
     private void Remove(NoteStore target, Guid note, Guid image)
     {
