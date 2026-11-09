@@ -199,14 +199,18 @@ public sealed class DeskController : IDisposable
         return true;
     }
 
-    private DesktopStack StackForDrop(StickyWindow target, Guid topNoteId, List<Placement> placements)
+    private DesktopStack StackForDrop(StickyWindow target, Guid topNoteId, List<Placement> placements, Guid? movingStack = null)
     {
         target.Flush();
-        if (target.StackId is Guid existing)
+        if ((target.StackId ?? movingStack) is Guid existing)
+        {
+            if (target.StackId == null)
+                placements.Add(Store.GetPlacement(target.NoteId) with { StackId = existing });
             return Stack(existing) with
             {
                 ActiveNoteId = topNoteId, X = target.Left, Y = target.Top, Width = target.Width, Height = target.Height
             };
+        }
 
         var group = Guid.NewGuid();
         var names = StackMenu.NonemptyStacks(Store).Select(stack => stack.Name).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
@@ -235,11 +239,11 @@ public sealed class DeskController : IDisposable
     public IReadOnlyList<Note> StackNotes(Guid stackId) =>
         NoteStack.Order(VisibleNotes().Where(row => row.Placement.StackId == stackId).Select(row => row.Note));
 
-    internal void BeginSheetDrag(StickyWindow source)
+    internal void BeginSheetDrag(StickyWindow source, bool peel)
     {
         if (!Settings.StackedNotes) return;
         draggedSheet = source;
-        if (source.StackId is not Guid group) return;
+        if (!peel || source.StackId is not Guid group) return;
         var notes = StackNotes(group);
         if (notes.Count < 2) return;
         var next = NoteStack.Next(notes, source.NoteId, 1);
@@ -272,9 +276,9 @@ public sealed class DeskController : IDisposable
             .Select(window => (Window: window, Bounds: window.PaperScreenBounds()))
             .Where(row => row.Bounds.Contains(pointer))
             .OrderBy(row => (pointer - new Point(row.Bounds.X + row.Bounds.Width / 2, row.Bounds.Y + row.Bounds.Height / 2)).LengthSquared)
-            .Select(row => row.Window).FirstOrDefault();
+            .Select(row => row.Window).FirstOrDefault(IsLiveSheet);
 
-    internal void FinishSheetDrag(StickyWindow source, Point? pointer, Rect origin)
+    internal void FinishSheetDrag(StickyWindow source, Point? pointer, Rect origin, bool peel)
     {
         if (draggedSheet != source) return;
         var target = pointer is Point dropPoint ? FindDropTarget(source, dropPoint) : null;
@@ -291,17 +295,29 @@ public sealed class DeskController : IDisposable
             return;
         }
 
-        if (target != null && !IsLiveSheet(target)) target = null;
-        if (target == null && revealed == null) return;
+        if (target == null && revealed == null)
+        {
+            ReconcileWindows(animateOpening: false);
+            return;
+        }
 
         var placements = new List<Placement>();
         var stacks = new List<DesktopStack>();
         Guid? destination = null;
         if (target != null)
         {
-            var stack = StackForDrop(target, source.NoteId, placements);
+            var movingStack = peel ? null : source.StackId;
+            var stack = StackForDrop(target, source.NoteId, placements, movingStack);
             destination = stack.Id;
             stacks.Add(stack);
+            if (movingStack is Guid group && group != stack.Id)
+            {
+                var existing = Store.AllPlacements();
+                foreach (var row in Store.All())
+                    if (row.Note.Id != source.NoteId && row.Note is { ArchivedAt: null, DeletedAt: null } &&
+                        existing.GetValueOrDefault(row.Note.Id) is { } member && member.StackId == group)
+                        placements.Add(member with { StackId = stack.Id });
+            }
         }
         placements.Add(placement with
         {

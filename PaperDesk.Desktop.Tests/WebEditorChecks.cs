@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -18,18 +19,20 @@ using PaperDesk.Desktop.Views;
 
 static class WebEditorChecks
 {
-    public static int Run(string folder)
+    public static int Run(string folder, bool withoutRuntime = false)
     {
         System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.ConsoleTraceListener());
+        if (withoutRuntime)
+            Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", Path.GetFullPath(Path.Combine(folder, "missing-runtime")));
         var frame = new DispatcherFrame();
-        var check = Dispatcher.CurrentDispatcher.InvokeAsync(() => Check(folder)).Task.Unwrap();
+        var check = Dispatcher.CurrentDispatcher.InvokeAsync(() => Check(folder, withoutRuntime)).Task.Unwrap();
         _ = check.ContinueWith(_ => frame.Continue = false, TaskScheduler.Default);
         Dispatcher.PushFrame(frame);
         check.GetAwaiter().GetResult();
         return 0;
     }
 
-    private static async Task Check(string folder)
+    private static async Task Check(string folder, bool withoutRuntime)
     {
         var profile = Path.Combine(folder, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(profile);
@@ -56,6 +59,18 @@ static class WebEditorChecks
         {
             var cards = (ListBox)manager.FindName("Cards");
             cards.SelectedItem = cards.Items.OfType<NoteCard>().Single();
+            if (withoutRuntime)
+            {
+                await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                await Until(() => Task.FromResult(new[] { managerBody, stickyBody }.All(body =>
+                    !body.IsWebActive && ((Grid)body.Content).Children.OfType<WebView2CompositionControl>().Count() == 0)),
+                    "both editors must recover from missing WebView2");
+                managerBody.BeginEdit();
+                Require(managerBody.IsEditing && managerBody.Text.Contains("Task") && stickyBody.Text.Contains("Secret"),
+                    "the native editor must load the existing note and accept editing");
+                Console.WriteLine("PASS manager and sticky fall back to editable WPF when WebView2 is unavailable");
+                return;
+            }
             var wide = await Browser(managerBody);
             var narrow = await Browser(stickyBody);
             const string painted = "document.querySelector('img[data-picture]')?.naturalWidth === 64";
@@ -65,6 +80,26 @@ static class WebEditorChecks
             Require(await Eval(wide, anchored) == "true" && await Eval(narrow, anchored) == "true", "same logical overlay position on both papers");
             Require(await Eval(wide, "!!document.querySelector('table th') && !!document.querySelector('input[type=checkbox]') && !!document.querySelector('summary')") == "true",
                 "existing table, checklist and spoiler are rendered");
+            const string checkboxBesideLabel = """
+                (() => {
+                    const box = document.querySelector('input[type=checkbox]');
+                    const check = box.getBoundingClientRect();
+                    const label = box.parentElement.nextElementSibling.getBoundingClientRect();
+                    return check.right <= label.left && check.bottom > label.top && check.top < label.bottom;
+                })()
+                """;
+            Require(await Eval(wide, checkboxBesideLabel) == "true" && await Eval(narrow, checkboxBesideLabel) == "true",
+                "A WebView2 checklist must put its checkbox beside its label");
+            const string checkboxWidth = "document.querySelector('input[type=checkbox]').getBoundingClientRect().width";
+            var originalPlacement = desk.Store.GetPlacement(note.Id);
+            var originalWidth = JsonSerializer.Deserialize<double>(await Eval(narrow, checkboxWidth));
+            desk.Store.SavePlacement(originalPlacement with { FontSize = 29 });
+            await Until(async () => JsonSerializer.Deserialize<double>(await Eval(narrow, checkboxWidth)) > originalWidth * 1.4,
+                "WebView2 checkboxes must grow with the text size");
+            desk.Store.SavePlacement(originalPlacement);
+            await Until(async () => JsonSerializer.Deserialize<double>(await Eval(narrow, checkboxWidth)) == originalWidth,
+                "restoring the text size must restore the checkbox size");
+            Console.WriteLine("PASS WebView2 checklist boxes stay beside their labels and scale with text");
 
             await Eval(wide, "document.querySelector('img').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true})); [...document.querySelectorAll('#menu button')].find(b => /В тексте|In text/.test(b.textContent)).click()");
             await Until(() => Task.FromResult(desk.Store.ImageLayouts(note.Id).Single().Layout?.Mode == ImageTextMode.Inline), "image mode must save");
@@ -90,6 +125,52 @@ static class WebEditorChecks
             Require(saved.Contains(":::spoiler Details\nSecret\n:::") && Regex.IsMatch(saved, @"\| One +\| Two +\|"),
                 "editing must preserve table and spoiler text");
             Console.WriteLine("PASS WebView2 manager and sticky share the image anchor; Enter, Backspace, typing, scrolling, mode, and checkbox persist as expected");
+
+            await Eval(wide, """
+                (() => {
+                    const root = document.querySelector('.tiptap');
+                    const text = root.querySelector('p').firstChild;
+                    root.focus();
+                    getSelection().setBaseAndExtent(text, 0, text, 6);
+                })()
+                """);
+            await FormatCommand("Жирный");
+            await Until(() => Task.FromResult(desk.Store.Find(note.Id)!.Note.Body.Contains("**Before**")), "bold must format the selected text");
+            await Eval(wide, """
+                (() => {
+                    const cell = document.querySelector('tbody td p');
+                    cell.scrollIntoView();
+                    getSelection().collapse(cell, 0);
+                })()
+                """);
+            await FormatCommand("Добавить строку");
+            await Until(async () => await Eval(wide, "document.querySelectorAll('table tr').length") == "3",
+                "adding a row must keep the table and add an editable row");
+            Require(Regex.IsMatch(desk.Store.Find(note.Id)!.Note.Body, @"\| One +\| Two +\|"), "table editing must preserve the old values");
+            Console.WriteLine("PASS WebView2 preserves selection when applying bold and adds a table row without losing cells");
+
+            var imageData = Convert.ToBase64String(buffer.ToArray());
+            await Eval(wide, $$"""
+                (() => {
+                    const root = document.querySelector('.tiptap');
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(new File([Uint8Array.from(atob('{{imageData}}'), c => c.charCodeAt(0))],
+                        'qa-drop.png', { type: 'image/png' }));
+                    const box = root.getBoundingClientRect();
+                    root.dispatchEvent(new DragEvent('drop', {
+                        bubbles: true, cancelable: true, dataTransfer,
+                        clientX: box.left + 8, clientY: Math.max(5, box.top + 12)
+                    }));
+                })()
+                """);
+            await Until(() => Task.FromResult(desk.Store.ImageIds(note.Id).Count == 2), "dropping a file into WebView2 must attach it");
+            var added = desk.Store.ImageIds(note.Id).Last();
+            await Until(async () => await Eval(wide, $"document.querySelector('img[data-picture=\"{added}\"]')?.naturalWidth === 64") == "true",
+                "the dropped attachment must render");
+            await Eval(wide, $"document.querySelector('img[data-picture=\"{added}\"]').dispatchEvent(new MouseEvent('contextmenu', {{bubbles:true}})); " +
+                "[...document.querySelectorAll('#menu button')].find(button => button.textContent === 'Удалить изображение').click()");
+            await Until(() => Task.FromResult(desk.Store.ImageIds(note.Id).Count == 1), "removing the added image must keep the original image");
+            Console.WriteLine("PASS WebView2 file drop renders a saved image and can remove only that attachment");
 
             typeof(ManagerWindow).GetMethod("TrashClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                 .Invoke(manager, [manager, new RoutedEventArgs()]);
@@ -130,6 +211,15 @@ static class WebEditorChecks
             await desk.PurgeTrash([topNote.Id]);
             Require(desk.Store.Find(topNote.Id) == null && desk.Store.Find(note.Id) != null, "purge must remove only the trashed note");
             Console.WriteLine("PASS trashing the desktop stack top reveals the next WebView2 note and permanent deletion removes only the trashed note");
+
+            async Task FormatCommand(string caption)
+            {
+                ((Button)manager.FindName("FormatButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                var label = JsonSerializer.Serialize(caption);
+                await Until(async () => await Eval(wide, $"[...document.querySelectorAll('#menu:not([hidden]) button')].some(b => b.textContent === {label})") == "true",
+                    $"Format must offer {caption} at the active selection");
+                await Eval(wide, $"[...document.querySelectorAll('#menu button')].find(b => b.textContent === {label}).click()");
+            }
         }
         finally
         {

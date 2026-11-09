@@ -27,6 +27,7 @@ static class UiChecks
         var app=new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
         if (args is ["--web-editor", var editorFolder]) return WebEditorChecks.Run(editorFolder);
+        if (args is ["--web-editor-fallback", var fallbackFolder]) return WebEditorChecks.Run(fallbackFolder, withoutRuntime: true);
         var body=new NoteBodyEditor { Width=270,Height=180,FontSize=17,Text="☐ В банк\n☑ В сервис\nОбычная строка" };
         Layout(body);var boxes=Descendants(body).OfType<CheckBox>().ToList();
         Require(boxes.Count==2,"Unicode markers must become real CheckBox controls");
@@ -856,6 +857,46 @@ static class UiChecks
             Math.Abs(desk.Store.GetStack(second.StackId.Value)!.X - second.Left) < .5,
             "Dragging the top grip must move the whole stack without changing its membership or the other stack");
         Console.WriteLine("PASS editing-only format, separate move and peel grips, stacking and stack renaming");
+
+        var hidden = new Note { Title = "Hidden sheet in the source stack" };
+        desk.Store.Save(hidden);
+        desk.Store.SavePlacement(new Placement { NoteId = hidden.Id, StackId = stackId, Visible = false });
+        var movedBounds = Bounds(second);
+        var targetPoint = Center(secondary.PaperScreenBounds());
+        second.DragStarted(wholeStack: true);
+        second.DragMoved(targetPoint, default);
+        Require(((FrameworkElement)secondary.FindName("DropOutline")).IsVisible,
+            "The top grip must highlight a drop target just like the lower grip");
+        second.DragFinished(null, movedBounds);
+        Require(Bounds(second) == movedBounds && desk.StackNotes(stackId).Count == 2 &&
+            !((FrameworkElement)secondary.FindName("DropOutline")).IsVisible,
+            "Cancelling a top-grip drop must preserve both stacks and clear the highlight");
+
+        second.DragStarted(wholeStack: true);
+        second.Left = secondary.Left;
+        second.Top = secondary.Top;
+        second.DragFinished(targetPoint, movedBounds);
+        Require(Sheets().Single() == second && desk.StackNotes(Guid.Empty).Count == 3 &&
+            desk.Store.GetStack(Guid.Empty)?.ActiveNoteId == second.NoteId &&
+            desk.Store.GetPlacement(hidden.Id) is { Visible: false, StackId: Guid hiddenGroup } && hiddenGroup == Guid.Empty,
+            "Dropping the top grip must merge every member of the source stack while keeping hidden sheets hidden");
+
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            second.DragStarted(wholeStack: false);
+            second.Left = looseBounds.Left;
+            second.Top = looseBounds.Top;
+            Settle();
+            second.DragFinished(Center(second.PaperScreenBounds()), primaryBounds);
+            Require(second.StackId == null && desk.StackNotes(Guid.Empty).Count == 2,
+                "The lower grip must still peel one sheet from a merged stack");
+            var other = Sheets().Single(w => w != second);
+            second.DragStarted(wholeStack: true);
+            second.DragFinished(Center(other.PaperScreenBounds()), looseBounds);
+            Require(second.StackId == Guid.Empty && desk.StackNotes(Guid.Empty).Count == 3,
+                "A loose sheet must also join a stack when dragged by its top grip");
+        }
+        Console.WriteLine("PASS top-grip merge, cancellation and 12 consecutive peel and rejoin cycles preserve membership");
 
         static List<StickyWindow> Sheets() => Application.Current.Windows.OfType<StickyWindow>().Where(w => w.IsVisible).ToList();
         static Rect Bounds(StickyWindow w) => new(w.Left, w.Top, w.Width, w.Height);

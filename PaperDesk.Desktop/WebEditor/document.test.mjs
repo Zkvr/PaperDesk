@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getSchema } from '@tiptap/core'
+import { getSchema, mergeAttributes } from '@tiptap/core'
 import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { splitBlock, joinBackward } from '@tiptap/pm/commands'
 import { createDocumentCodec } from './document.mjs'
@@ -9,6 +9,14 @@ const id = '69d6d866-d8c3-4c45-a86e-7ed9690357d1'
 const codec = createDocumentCodec('test-session')
 const schema = getSchema(codec.extensions)
 const picture = { id, anchor: 1, mode: 'inline', x: .18, y: .14, width: .6 }
+
+test('inherited event handlers cannot become editor DOM attributes', () => {
+  const input = JSON.parse('{"__proto__":{"onerror":"qa-canary","src":"x-qa:canary"},"class":"paper"}')
+  const attributes = mergeAttributes(input)
+  assert.equal(attributes.class, 'paper')
+  assert.equal('onerror' in attributes, false)
+  assert.equal('src' in attributes, false)
+})
 
 test('legacy table, task and spoiler remain editable around an existing attachment', () => {
   const body = '| Имя | План |\n| --- | --- |\n| А | Б |\n\n- [x] Готово\n\n:::spoiler Текст\nВнутри\n:::\n\nПосле'

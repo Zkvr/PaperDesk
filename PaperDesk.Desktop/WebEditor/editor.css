@@ -13,9 +13,9 @@ body { margin: 0; background: transparent; color: #302d29; font: 16px/1.45 "Sego
 .tiptap th { background: #75623a16; }
 .tiptap .selectedCell { background: #b7c8dd; }
 .tiptap ul[data-type=taskList] { padding-left: 0; list-style: none; }
-.tiptap li[data-type=taskItem] { display: flex; align-items: baseline; gap: .32em; }
-.tiptap li[data-type=taskItem] > div { min-width: 0; }
-.tiptap input[type=checkbox] { accent-color: #78623a; margin: 0; }
+.tiptap ul[data-type=taskList] > li { display: flex; align-items: baseline; gap: .32em; }
+.tiptap ul[data-type=taskList] > li > div { min-width: 0; }
+.tiptap input[type=checkbox] { font: inherit; width: .85em; height: .85em; accent-color: #78623a; margin: 0; vertical-align: -.05em; }
 .tiptap [data-type=details] { display: flex; gap: .3em; margin: .18em 0; }
 .tiptap [data-type=details] > button { font: inherit; border: 0; background: transparent; color: inherit; cursor: pointer; align-self: flex-start; }
 .tiptap [data-type=details] > button::before { content: "▸"; }

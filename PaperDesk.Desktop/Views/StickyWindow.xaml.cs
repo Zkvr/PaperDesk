@@ -235,7 +235,7 @@ public partial class StickyWindow : Window
             Paper.RenderTransformOrigin = DragPin;
             dragResponse.Grab();
         }
-        if (peeling) desk.BeginSheetDrag(this);
+        desk.BeginSheetDrag(this, peeling);
     }
 
     internal void DragMoved(Point pointer, Vector velocity)
@@ -247,7 +247,7 @@ public partial class StickyWindow : Window
     internal void DragFinished(Point? pointer, Rect origin)
     {
         dragResponse.Release();
-        try { desk.FinishSheetDrag(this, pointer, origin); }
+        try { desk.FinishSheetDrag(this, pointer, origin, peeling); }
         finally
         {
             dragging = false;

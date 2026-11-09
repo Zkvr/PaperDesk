@@ -4,7 +4,7 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>PaperDesk</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>paperdesk.ico</ApplicationIcon>
-    <Version>0.3.0-preview.17</Version><Product>PaperDesk</Product>
+    <Version>0.3.0-preview.18</Version><Product>PaperDesk</Product>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets/mark.png"/>

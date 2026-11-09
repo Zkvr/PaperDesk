@@ -12,11 +12,25 @@ Keep a checklist beside your work, a stack for each project, and a blank sheet f
 
 ## A desk you can arrange
 
-![PaperDesk’s Windows manager with pastel notes, desktop sections, and a wide checklist editor with an image attachment](media/manager.png)
+![Three separate PaperDesk notes on a sample Windows desktop. A yellow checklist, a lavender reading list, and a mint note for the weekend.](media/desktop-notes.png)
 
-- **Peel, drop, stack.** Pull a sheet out of a stack by its lower edge. Drop it onto another note to make a new stack, then give the stack a name.
-- **Keep the whole thought.** Edit task labels, table cells, and spoilers in place. Paste a screenshot or drag an image from Chrome or Explorer, then choose whether it sits in the text, wraps the text, or floats on top.
-- **Find it when you need it.** Bring notes forward with a shortcut, or search and sort them in the manager. Archive or trash several sheets at once.
+Give each project its own stack. Drag a note or a whole stack by its upper edge onto another note to combine them. Pull the lower edge to peel off one sheet, then leave it on the desktop or drop it onto another stack.
+
+![The top grip joins two named stacks, then the lower grip peels the top note back off as a separate sheet.](media/stack-and-peel.gif)
+
+<details>
+  <summary><strong>See two named stacks and a loose note</strong></summary>
+  <br>
+  <img src="media/desktop-stacks.png" alt="Studio launch and Field notes stacks with page counts, beside a separate Reading list note." width="100%">
+</details>
+
+## Write and organize
+
+![PaperDesk’s Windows manager with pastel notes and a weekend checklist with a river photograph attached.](media/manager.png)
+
+- Edit checklists, tables, and spoilers directly on the paper. Paste or drag in an image and choose inline, wrap, or overlay placement.
+- Bring notes forward with a shortcut, or find them with search and filters. Archive or trash several sheets at once.
+- Export notes, images, and desktop stacks to a JSON backup you can move to another PC.
 
 <details>
   <summary><strong>Watch a sheet crumple</strong></summary>
@@ -26,7 +40,7 @@ Keep a checklist beside your work, a stack for each project, and a blank sheet f
 
 ## Start writing
 
-The preview runs on Windows x64 and follows your display language for English or Russian. The installer and portable ZIP both include .NET.
+The preview runs on Windows 10 version 2004 or newer and Windows 11 (x64). It follows your Windows display language for English or Russian. Both packages include .NET.
 
 | Choose | Open |
 | --- | --- |
@@ -41,4 +55,3 @@ On Windows, install the .NET SDK specified in `global.json` and run `dotnet buil
 
 The Windows editor uses Tiptap and ProseMirror inside Microsoft Edge WebView2. The editor bundle ships with the application and works offline. On PCs without the WebView2 Runtime, PaperDesk opens the built-in Windows editor. To rebuild the editor bundle after changing it, run `npm ci` and `npm run build` in `PaperDesk.Desktop/WebEditor`.
 
-The first preview is being prepared. The repository is private while the release and license are being finalized.
