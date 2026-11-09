@@ -18,11 +18,7 @@ Give each project its own stack. Drag a note or a whole stack by its upper edge 
 
 ![The top grip joins two named stacks, then the lower grip peels the top note back off as a separate sheet.](media/stack-and-peel.gif)
 
-<details>
-  <summary><strong>See two named stacks and a loose note</strong></summary>
-  <br>
-  <img src="media/desktop-stacks.png" alt="Studio launch and Field notes stacks with page counts, beside a separate Reading list note." width="100%">
-</details>
+![Studio launch and Field notes stacks with page counts, beside a separate Reading list note.](media/desktop-stacks.png)
 
 ## Write and organize
 
@@ -32,11 +28,11 @@ Give each project its own stack. Drag a note or a whole stack by its upper edge 
 - Bring notes forward with a shortcut, or find them with search and filters. Archive or trash several sheets at once.
 - Export notes, images, and desktop stacks to a JSON backup you can move to another PC.
 
-<details>
-  <summary><strong>Watch a sheet crumple</strong></summary>
-  <br>
+### Crumple a finished note
+
+<p align="center">
   <img src="media/paper-motion.gif" width="360" alt="The yellow note crumples, revealing the next sheet in the stack.">
-</details>
+</p>
 
 ## Start writing
 
