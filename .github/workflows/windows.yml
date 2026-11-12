@@ -1,0 +1,36 @@
+name: Windows
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.12.0'
+      - name: Audit, build and test
+        shell: pwsh
+        run: ./scripts/verify-windows.ps1
+      - name: Build Windows portable ZIP
+        shell: pwsh
+        run: ./scripts/package-release.ps1 -PortableOnly -Output artifacts/ci-release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PaperDesk-Windows-x64
+          path: artifacts/ci-release
+          if-no-files-found: error
+          compression-level: 0

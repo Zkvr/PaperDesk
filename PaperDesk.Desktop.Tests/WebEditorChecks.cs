@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -21,15 +22,82 @@ static class WebEditorChecks
 {
     public static int Run(string folder, bool withoutRuntime = false)
     {
-        System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.ConsoleTraceListener());
+        Trace.Listeners.Add(new ConsoleTraceListener());
         if (withoutRuntime)
             Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", Path.GetFullPath(Path.Combine(folder, "missing-runtime")));
+        return RunOnDispatcher(() => Check(folder, withoutRuntime));
+    }
+
+    public static int RunLifetime(string folder)
+    {
+        Trace.Listeners.Add(new ConsoleTraceListener());
+        return RunOnDispatcher(() => CheckLifetime(folder));
+    }
+
+    private static int RunOnDispatcher(Func<Task> test)
+    {
         var frame = new DispatcherFrame();
-        var check = Dispatcher.CurrentDispatcher.InvokeAsync(() => Check(folder, withoutRuntime)).Task.Unwrap();
+        var check = Dispatcher.CurrentDispatcher.InvokeAsync(test).Task.Unwrap();
         _ = check.ContinueWith(_ => frame.Continue = false, TaskScheduler.Default);
         Dispatcher.PushFrame(frame);
         check.GetAwaiter().GetResult();
         return 0;
+    }
+
+    private static async Task CheckLifetime(string folder)
+    {
+        using var desk = new DeskController(Path.Combine(folder, Guid.NewGuid().ToString("N")));
+        var note = new Note { Title = "Synthetic lifetime", Body = "Open and close WebView2" };
+        desk.Store.Save(note);
+        using var testProcess = Process.GetCurrentProcess();
+        var closed = new System.Collections.Generic.List<WeakReference>();
+        double warmPrivate = 0;
+        for (var i = 0; i < 12; i++)
+        {
+            try { closed.Add(await OpenAndClose(i % 2 == 0)); }
+            catch (Exception error) { throw new InvalidOperationException($"WebView2 cycle {i + 1} failed.", error); }
+            if (i == 3) warmPrivate = PrivateMiB();
+        }
+        var finalPrivate = PrivateMiB();
+        Require(closed.Count(reference => reference.IsAlive) == 0, "Closed WebView2 windows must be collectible.");
+        Console.WriteLine(FormattableString.Invariant(
+            $"PASS 12 manager and sticky open/close cycles release every browser process and window (host private MiB after 4/12: {warmPrivate:F1}/{finalPrivate:F1})"));
+
+        async Task<WeakReference> OpenAndClose(bool managerMode)
+        {
+            Window window = managerMode ? new ManagerWindow(desk) : new StickyWindow(desk, note.Id, false);
+            window.ShowActivated = false;
+            var body = (NoteBodyEditor)window.FindName(managerMode ? "EditBody" : "BodyBox");
+            body.EnableWebEditor(desk, () => { });
+            window.Show();
+            Process browser;
+            try
+            {
+                if (window is ManagerWindow)
+                {
+                    var cards = (ListBox)window.FindName("Cards");
+                    cards.SelectedItem = cards.Items.OfType<NoteCard>().Single();
+                }
+                var host = await Browser(body);
+                browser = Process.GetProcessById(checked((int)host.CoreWebView2.BrowserProcessId));
+            }
+            finally { window.Close(); }
+            using (browser)
+            {
+                await Until(() => Task.FromResult(!body.IsWebActive && browser.HasExited),
+                    "The last closed editor must release its browser process.");
+            }
+            return new WeakReference(window);
+        }
+
+        double PrivateMiB()
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            testProcess.Refresh();
+            return testProcess.PrivateMemorySize64 / 1048576d;
+        }
     }
 
     private static async Task Check(string folder, bool withoutRuntime)
@@ -134,7 +202,7 @@ static class WebEditorChecks
                     getSelection().setBaseAndExtent(text, 0, text, 6);
                 })()
                 """);
-            await FormatCommand("Жирный");
+            await FormatCommand(manager, wide, "Жирный");
             await Until(() => Task.FromResult(desk.Store.Find(note.Id)!.Note.Body.Contains("**Before**")), "bold must format the selected text");
             await Eval(wide, """
                 (() => {
@@ -143,11 +211,21 @@ static class WebEditorChecks
                     getSelection().collapse(cell, 0);
                 })()
                 """);
-            await FormatCommand("Добавить строку");
+            await FormatCommand(manager, wide, "Добавить строку ниже", shortcut: true);
             await Until(async () => await Eval(wide, "document.querySelectorAll('table tr').length") == "3",
                 "adding a row must keep the table and add an editable row");
             Require(Regex.IsMatch(desk.Store.Find(note.Id)!.Note.Body, @"\| One +\| Two +\|"), "table editing must preserve the old values");
             Console.WriteLine("PASS WebView2 preserves selection when applying bold and adds a table row without losing cells");
+
+            sticky.Activate();
+            narrow.Focus();
+            await Eval(narrow, "document.querySelector('.tiptap').focus()");
+            await Until(() => Task.FromResult(((Button)sticky.FindName("FormatButton")).IsVisible),
+                "Editing a sticky note must show its format icon");
+            await FormatCommand(sticky, narrow, caption: null);
+            manager.Activate();
+            wide.Focus();
+            Console.WriteLine("PASS the sticky format menu opens beside the paper and shows command icons");
 
             var imageData = Convert.ToBase64String(buffer.ToArray());
             await Eval(wide, $$"""
@@ -212,13 +290,38 @@ static class WebEditorChecks
             Require(desk.Store.Find(topNote.Id) == null && desk.Store.Find(note.Id) != null, "purge must remove only the trashed note");
             Console.WriteLine("PASS trashing the desktop stack top reveals the next WebView2 note and permanent deletion removes only the trashed note");
 
-            async Task FormatCommand(string caption)
+            async Task FormatCommand(Window window, WebView2CompositionControl browser, string? caption, bool shortcut = false)
             {
-                ((Button)manager.FindName("FormatButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-                var label = JsonSerializer.Serialize(caption);
-                await Until(async () => await Eval(wide, $"[...document.querySelectorAll('#menu:not([hidden]) button')].some(b => b.textContent === {label})") == "true",
-                    $"Format must offer {caption} at the active selection");
-                await Eval(wide, $"[...document.querySelectorAll('#menu button')].find(b => b.textContent === {label}).click()");
+                var button = (Button)window.FindName("FormatButton");
+                Require(button.Content is System.Windows.Shapes.Path, "The toolbar format control must be an icon");
+                if (shortcut)
+                    await Eval(browser, "document.dispatchEvent(new KeyboardEvent('keydown', {ctrlKey:true, shiftKey:true, code:'KeyF'}))");
+                else
+                {
+                    if (button.Focusable) button.Focus();
+                    button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                }
+                ContextMenu? menu = null;
+                await Until(() =>
+                {
+                    menu = PresentationSource.CurrentSources.Cast<PresentationSource>()
+                        .Select(source => source.RootVisual).OfType<Visual>().SelectMany(UiChecks.Descendants)
+                        .OfType<ContextMenu>().SingleOrDefault(candidate => candidate.IsOpen && candidate.PlacementTarget == button);
+                    return Task.FromResult(menu is { ActualWidth: > 0, ActualHeight: > 0 });
+                }, "Format must open a native menu");
+                var paper = (FrameworkElement)window.FindName(window is StickyWindow ? "Paper" : "EditorPaper");
+                var overlap = Rect.Intersect(Bounds(menu!), Bounds(paper));
+                Require(overlap.IsEmpty || overlap.Width <= 1 || overlap.Height <= 1, "The native menu must keep the paper visible");
+                Require(await Eval(browser, "document.querySelector('#menu').hidden") == "true", "The browser must not draw format commands over the paper");
+                var items = menu!.Items.OfType<MenuItem>().ToList();
+                Require(items.All(item => item.Template.FindName("ItemIcon", item) is ContentPresenter { Content: TextBlock, IsVisible: true }),
+                    "Every format command must display its icon");
+                if (caption != null)
+                    items.Single(item => Equals(item.Header, caption)).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                menu.IsOpen = false;
+
+                static Rect Bounds(FrameworkElement element) => new(element.PointToScreen(new Point()),
+                    element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight)));
             }
         }
         finally

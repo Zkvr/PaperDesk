@@ -19,6 +19,13 @@ static class UiChecks
 {
     [STAThread] static int Main(string[] args)
     {
+        if (args is ["--profile-storage", var profileStorageFolder])
+            return ProfileStorageChecks.Run(profileStorageFolder);
+        if (args is ["--error-log", var errorLogFolder])
+            return ErrorLogChecks.Run(errorLogFolder);
+        if (args is ["--display-geometry"]) return WindowsShellChecks.CheckGeometry();
+        if (args is ["--seed-performance", var seedFolder, var count])
+            return PerformanceChecks.Seed(seedFolder, int.Parse(count));
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
         Require(PaperDesk.Core.L.T("Все заметки") == "All notes", "English UI strings must load from the embedded resource");
         Require(PaperDesk.Core.L.T("Стопки на столе ▾") == "Desktop stacks ▾", "Stack controls must be localized");
@@ -26,8 +33,14 @@ static class UiChecks
         Require(PaperDesk.Core.L.T("Все заметки") == "Все заметки", "Russian UI strings must follow the UI culture");
         var app=new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
+        if (args is ["--performance", var performanceFolder]) return PerformanceChecks.Run(performanceFolder);
+        if (args is ["--manager-scale", var managerFolder]) return PerformanceChecks.CheckScrolling(managerFolder);
+        if (args is ["--windows-shell", var shellFolder]) return WindowsShellChecks.CheckDesktop(shellFolder);
+        if (args is ["--editor-lifetime", var lifetimeFolder]) return WebEditorChecks.RunLifetime(lifetimeFolder);
         if (args is ["--web-editor", var editorFolder]) return WebEditorChecks.Run(editorFolder);
         if (args is ["--web-editor-fallback", var fallbackFolder]) return WebEditorChecks.Run(fallbackFolder, withoutRuntime: true);
+        if (args.Length > 1 || args.FirstOrDefault()?.StartsWith("--", StringComparison.Ordinal) == true)
+            throw new ArgumentException("Expected a test mode or an output directory.");
         var body=new NoteBodyEditor { Width=270,Height=180,FontSize=17,Text="☐ В банк\n☑ В сервис\nОбычная строка" };
         Layout(body);var boxes=Descendants(body).OfType<CheckBox>().ToList();
         Require(boxes.Count==2,"Unicode markers must become real CheckBox controls");
@@ -928,7 +941,8 @@ static class UiChecks
     {
         var body = new NoteBodyEditor { Width = 380, Height = 360, FontSize = 16 };
         var format = new Button { Content = "Формат" };
-        format.Click += (_, _) => body.OpenFormatMenu(format);
+        body.ConnectFormatMenu(format, body);
+        format.Click += (_, _) => body.OpenFormatMenu();
         var panel = new DockPanel();
         DockPanel.SetDock(format, Dock.Top);
         panel.Children.Add(format);
@@ -1022,7 +1036,7 @@ static class UiChecks
             body.Text = "До\nСтрока";
             body.BeginEdit();
             PlainField().Select(3, 6);
-            ChooseFormat("¶  Подзаголовок");
+            ChooseFormat("Подзаголовок");
             Require(body.Text == "До\n## Строка", "Moving focus from selection to Format must keep the selected paragraph");
             Console.WriteLine("PASS document selection, heading and combined inline formatting survive the Format menu");
 
@@ -1042,7 +1056,7 @@ static class UiChecks
 
             body.Text = "До";
             body.BeginEdit();
-            ChooseFormat("▸  Спойлер");
+            ChooseFormat("Спойлер");
             Require(Field().Text == "" && body.Text == "До\n:::spoiler\n\n:::\n", "New spoilers must start open with an empty body");
             Field().Text = "Секрет";
             Disclosure("▾").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -1206,6 +1220,9 @@ static class UiChecks
             var menu = PresentationSource.CurrentSources.Cast<PresentationSource>()
                 .Select(source => source.RootVisual).OfType<Visual>().SelectMany(Descendants)
                 .OfType<ContextMenu>().Single(m => m.IsOpen);
+            Require(menu.Placement == PlacementMode.Custom && menu.Items.OfType<MenuItem>().All(item => item.Icon != null),
+                "The fallback format menu must use the same placement and icon column");
+            if (label == "Жирный") SaveSized(menu, Path.Combine(folder, "format-menu.png"));
             Pick(menu, label);
         }
         void TableAction(string value, string label)
@@ -1235,7 +1252,7 @@ static class UiChecks
         bitmap.CopyPixels(location, pixel, 4, 0);
         return pixel[3];
     }
-    static IEnumerable<DependencyObject> Descendants(DependencyObject root){for(var i=0;i<VisualTreeHelper.GetChildrenCount(root);i++){var c=VisualTreeHelper.GetChild(root,i);yield return c;foreach(var d in Descendants(c))yield return d;}}
+    internal static IEnumerable<DependencyObject> Descendants(DependencyObject root){for(var i=0;i<VisualTreeHelper.GetChildrenCount(root);i++){var c=VisualTreeHelper.GetChild(root,i);yield return c;foreach(var d in Descendants(c))yield return d;}}
     static void Require(bool ok,string message){if(!ok)throw new Exception(message);}
     static double L(Color c){double F(byte b){var x=b/255d;return x<=.04045?x/12.92:Math.Pow((x+.055)/1.055,2.4);}return .2126*F(c.R)+.7152*F(c.G)+.0722*F(c.B);}
     static double Contrast(Color a,Color b){var x=L(a);var y=L(b);return(Math.Max(x,y)+.05)/(Math.Min(x,y)+.05);}

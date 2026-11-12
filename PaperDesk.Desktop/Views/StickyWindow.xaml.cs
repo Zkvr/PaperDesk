@@ -38,6 +38,7 @@ public partial class StickyWindow : Window
         InitializeComponent(); var p = desk.WindowPlacement(id, StackId);
         Left = p.X; Top = p.Y; Width = Math.Clamp(p.Width, MinWidth, 1600); Height = Math.Clamp(p.Height, MinHeight, 1400); Opacity = Math.Clamp(p.Opacity, .94, 1);
         BodyBox.ConnectTitle(TitleBox);
+        BodyBox.ConnectFormatMenu(FormatButton, Paper);
         Pictures.ConnectDrop(Paper, BodyBox);
         if (Application.Current is App) BodyBox.EnableWebEditor(desk, () => desk.NewNote());
         ApplyStyle(p); RefreshContent(); loading = false;
@@ -57,7 +58,7 @@ public partial class StickyWindow : Window
         IsVisibleChanged += (_, _) =>
         {
             if (!IsVisible) CloseTools();
-            else if (hasRendered) RevealPaper();
+            else if (hasRendered) { EnsureOnScreen(); RevealPaper(); }
         };
         layerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         layerTimer.Tick += (_, _) =>
@@ -83,7 +84,7 @@ public partial class StickyWindow : Window
         {
             if (IsCrumpling) { e.Handled = true; return; }
             if (BodyBox.IsEditing && e.Key == Key.F && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
-            { BodyBox.OpenFormatMenu(FormatButton); e.Handled = true; return; }
+            { BodyBox.OpenFormatMenu(); e.Handled = true; return; }
             if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control) { desk.NewNote(); e.Handled = true; }
             else if (e.Key == Key.V && Keyboard.Modifiers == ModifierKeys.Control) e.Handled = Pictures.Paste();
             else if (StackId.HasValue && Keyboard.Modifiers == ModifierKeys.Control && e.Key is Key.PageDown or Key.PageUp)
@@ -161,12 +162,27 @@ public partial class StickyWindow : Window
     private void SavePosition() { if (!IsLoaded || dragging) return; if (StackId is Guid group) { desk.SaveStackBounds(group, Left, Top, Width, Height); return; } var p = desk.Store.GetPlacement(NoteId); if (Math.Abs(p.X - Left) + Math.Abs(p.Y - Top) + Math.Abs(p.Width - Width) + Math.Abs(p.Height - Height) > .5) desk.Store.SavePlacement(p with { X = Left, Y = Top, Width = Width, Height = Height }); }
     public void EnsureOnScreen()
     {
-        // WPF coordinates are DIPs; Screen working areas are physical pixels under PerMonitorV2.
-        var transform = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
-        var visible = System.Windows.Forms.Screen.AllScreens.Select(s => { var a = s.WorkingArea; var p = transform.Transform(new Point(a.Left, a.Top)); var q = transform.Transform(new Point(a.Right, a.Bottom)); return new Rect(p, q); }).ToList();
-        var title = new Rect(Left, Top, Math.Min(Width, 120), 40);
-        if (!visible.Any(r => r.Contains(title))) { var area = visible.FirstOrDefault(r => r.X <= 0 && r.Right > 0); if (area.IsEmpty || area.Width == 0) area = visible[0]; Left = area.Left + 40; Top = area.Top + 40; Width = Math.Min(Width, area.Width - 60); Height = Math.Min(Height, area.Height - 60); }
+        if (!IsVisible || dragging || PresentationSource.FromVisual(this) is not HwndSource source) return;
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        var primary = System.Windows.Forms.Screen.PrimaryScreen;
+        if (primary == null || !Native.GetWindowRect(source.Handle, out var bounds)) return;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var title = new Rect(bounds.Left, bounds.Top, Math.Min(Width, 120) * dpi.DpiScaleX, 40 * dpi.DpiScaleY);
+        var workAreas = screens.Select(screen => AsRect(screen.WorkingArea));
+        var primaryArea = AsRect(primary.WorkingArea);
+        if (RecoveryPosition(title, workAreas, primaryArea) is not { } destination) return;
+        Native.MoveWithoutActivate(source.Handle, (int)destination.X, (int)destination.Y);
+
+        // A move to another monitor can change the scale synchronously.
+        dpi = VisualTreeHelper.GetDpi(this);
+        Width = Math.Clamp(Width, MinWidth, Math.Max(MinWidth, (primaryArea.Right - destination.X) / dpi.DpiScaleX));
+        Height = Math.Clamp(Height, MinHeight, Math.Max(MinHeight, (primaryArea.Bottom - destination.Y) / dpi.DpiScaleY));
     }
+
+    internal static Point? RecoveryPosition(Rect title, IEnumerable<Rect> workAreas, Rect primaryArea)
+        => workAreas.Any(area => area.Contains(title)) ? null : new Point(primaryArea.Left + 40, primaryArea.Top + 40);
+
+    private static Rect AsRect(System.Drawing.Rectangle area) => new(area.Left, area.Top, area.Width, area.Height);
     public void ApplyLayer()
     {
         if (!IsLoaded) return;
@@ -425,7 +441,7 @@ public partial class StickyWindow : Window
     private void NewClick(object sender, RoutedEventArgs e) => desk.NewNote();
     private void MinimizeStackClick(object sender, RoutedEventArgs e) { if (StackId is Guid group) desk.MinimizeStack(group); }
     private void ConflictClick(object sender, RoutedEventArgs e) => desk.ShowManager();
-    private void FormatClick(object sender, RoutedEventArgs e) => BodyBox.OpenFormatMenu((Button)sender);
+    private void FormatClick(object sender, RoutedEventArgs e) => BodyBox.OpenFormatMenu();
     private void PreviousStackClick(object sender,RoutedEventArgs e) => desk.MoveStack(NoteId,-1);
     private void NextStackClick(object sender,RoutedEventArgs e) => desk.MoveStack(NoteId,1);
     private void SecondStackClick(object sender,RoutedEventArgs e) => desk.MoveStack(NoteId,2);

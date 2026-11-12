@@ -259,45 +259,6 @@ public sealed partial class NoteBodyEditor : UserControl
         };
     }
 
-    internal void OpenFormatMenu(Button anchor)
-    {
-        if (IsWebActive) { SendWebCommand("format"); return; }
-        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
-        formatMenu = menu;
-        var selection = CurrentSelection();
-        var table = blockPiece != null ? blockPiece.Table : lastTable;
-        if (table is { } cell && cell.Header < Text.Length &&
-            TableCells(Text[cell.Header..NoteFormat.LineEnd(Text, cell.Header)]) is { } columns)
-        {
-            var commands = new MenuItem { Header = L.T("Правка таблицы") };
-            AddTableCommands(commands, action => Dispatcher.BeginInvoke(() => EditTable(cell, action)), cell.Row > cell.Header, columns.Length);
-            menu.Items.Add(commands);
-            menu.Items.Add(new Separator());
-        }
-        foreach (var (kind, caption) in new[]
-        {
-            (NoteFormat.Kind.Bullet, L.T("•  Маркированный список")), (NoteFormat.Kind.Number, L.T("1.  Нумерованный список")),
-            (NoteFormat.Kind.Task, L.T("☐  Чекбокс")), (NoteFormat.Kind.Table, L.T("▦  Таблица")), (NoteFormat.Kind.Spoiler, L.T("▸  Спойлер")),
-            (NoteFormat.Kind.Heading, L.T("¶  Подзаголовок")), (NoteFormat.Kind.Quote, L.T("❞  Цитата")),
-            (NoteFormat.Kind.Bold, L.T("Жирный")), (NoteFormat.Kind.Italic, L.T("Курсив")),
-            (NoteFormat.Kind.Strike, L.T("Зачёркнутый")), (NoteFormat.Kind.Code, L.T("Код"))
-        })
-        {
-            var item = new MenuItem { Header = caption, IsEnabled = table == null || NoteFormat.InlineStyle(kind) != PaperInline.Style.Plain };
-            if (kind == NoteFormat.Kind.Bold) item.FontWeight = FontWeights.Bold;
-            if (kind == NoteFormat.Kind.Italic) item.FontStyle = FontStyles.Italic;
-            item.Click += (_, _) => Dispatcher.BeginInvoke(() =>
-            {
-                if (formatMenu != menu || !IsEnabled || !IsVisible) return;
-                formatMenu = null;
-                ApplyFormat(kind, selection);
-            });
-            menu.Items.Add(item);
-        }
-        menu.Closed += (_, _) => Dispatcher.BeginInvoke(() => { if (!IsKeyboardFocusWithin && formatMenu?.IsOpen != true) EndEdit(); });
-        menu.IsOpen = true;
-    }
-
     private void ApplyFormat(NoteFormat.Kind kind, (int Start, int Length) selection)
     {
         var start = Math.Clamp(selection.Start, 0, Text.Length);

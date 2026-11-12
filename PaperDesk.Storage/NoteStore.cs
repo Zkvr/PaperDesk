@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using PaperDesk.Core;
 
@@ -6,6 +8,7 @@ namespace PaperDesk.Storage;
 /// <summary>One isolated account database. Notes and immutable outgoing snapshots commit together.</summary>
 public sealed class NoteStore : INoteStore, IDisposable
 {
+    private const int MaxTextImportMiB = 16;
     private readonly SqliteConnection db;
     private readonly object gate = new();
     private readonly Guid owner;
@@ -23,9 +26,9 @@ public sealed class NoteStore : INoteStore, IDisposable
             Exec("PRAGMA busy_timeout=5000;");
             using (var check = Command("PRAGMA quick_check"))
                 if ((string?)check.ExecuteScalar() != "ok") throw new InvalidDataException(L.T("База повреждена. Исходный файл сохранён; восстановите резервную копию в другом профиле."));
+            Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
+            using var migration = db.BeginTransaction();
             Exec("""
-                PRAGMA journal_mode=WAL;
-                PRAGMA synchronous=FULL;
                 CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, json TEXT NOT NULL, generation INTEGER NOT NULL, dirty INTEGER NOT NULL, conflict TEXT);
                 CREATE TABLE IF NOT EXISTS outbox(note_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, json TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS placements(id TEXT PRIMARY KEY, json TEXT NOT NULL);
@@ -33,10 +36,11 @@ public sealed class NoteStore : INoteStore, IDisposable
                 CREATE TABLE IF NOT EXISTS recovery(id INTEGER PRIMARY KEY, json TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS purged(id TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS note_images(note_id TEXT NOT NULL, id TEXT NOT NULL, png BLOB NOT NULL, layout TEXT, PRIMARY KEY(note_id,id));
-                PRAGMA user_version=1;
                 """);
-            using var layoutColumn = Command("SELECT 1 FROM pragma_table_info('note_images') WHERE name='layout'");
-            if (layoutColumn.ExecuteScalar() == null) Exec("ALTER TABLE note_images ADD COLUMN layout TEXT");
+            using (var layoutColumn = Command("SELECT 1 FROM pragma_table_info('note_images') WHERE name='layout'"))
+                if (layoutColumn.ExecuteScalar() == null) Exec("ALTER TABLE note_images ADD COLUMN layout TEXT");
+            Exec("PRAGMA user_version=1");
+            migration.Commit();
         }
         catch
         {
@@ -471,7 +475,9 @@ public sealed class NoteStore : INoteStore, IDisposable
     private static NoteImageLayout? ReadImageLayout(SqliteDataReader row, int index) =>
         row.IsDBNull(index) ? null : Json.Read<NoteImageLayout>(row.GetString(index)).Bounded();
 
-    public string Export()
+    public string Export() => Json.Write(BackupSnapshot());
+
+    private Backup BackupSnapshot()
     {
         lock (gate)
         {
@@ -484,48 +490,165 @@ public sealed class NoteStore : INoteStore, IDisposable
             while (pictureRows.Read())
                 images.Add(new NoteImage(Guid.Parse(pictureRows.GetString(0)), Guid.Parse(pictureRows.GetString(1)),
                     (byte[])pictureRows[2], ReadImageLayout(pictureRows, 3)));
-            return Json.Write(new Backup(1, DateTimeOffset.UtcNow, notes, notes.Select(n => GetPlacement(n.Id)).ToList(), recovery,
-                AllStacks().ToList(), images.Count == 0 ? null : images));
+            return new Backup(1, DateTimeOffset.UtcNow, notes, notes.Select(n => GetPlacement(n.Id)).ToList(), recovery,
+                AllStacks().ToList(), images.Count == 0 ? null : images);
         }
     }
-    /// <summary>Import as local changes. Existing IDs are never overwritten.</summary>
-    public int Import(string json)
+    public void ExportFile(string path, bool markdown = false)
     {
-        var backup = Json.Read<Backup>(json);
-        if (backup.Version != 1 || backup.Notes == null || backup.Notes.Any(n => n.Id == Guid.Empty || n.Title == null || n.Body == null)) throw new InvalidDataException(L.T("Неподдерживаемый формат резервной копии"));
-        if (backup.Images is { } images && (images.Any(picture => picture is null || !NoteImage.IsValid(picture.Png)) ||
-            images.GroupBy(picture => picture.NoteId).Any(group => group.Count() > NoteImage.MaxPerNote)))
-            throw new InvalidDataException(L.T("В копии есть повреждённые или слишком большие изображения."));
+        var destination = Path.GetFullPath(path);
+        var temporary = Path.Combine(Path.GetDirectoryName(destination)!, ".paperdesk-export-" + Guid.NewGuid().ToString("N") + ".tmp");
+        var output = File.Open(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        try
+        {
+            using (output)
+            {
+                if (markdown)
+                {
+                    using var writer = new StreamWriter(output, new UTF8Encoding(false), leaveOpen: true);
+                    var separator = "";
+                    foreach (var row in All())
+                    {
+                        writer.Write(separator);
+                        writer.Write("# ");
+                        writer.Write(row.Note.Title);
+                        writer.Write("\n\n");
+                        writer.Write(row.Note.Body);
+                        separator = "\n\n---\n\n";
+                    }
+                }
+                else JsonSerializer.Serialize(output, BackupSnapshot(), Json.Options);
+                output.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, destination, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temporary); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
+    }
+
+    public int ImportFiles(IReadOnlyList<string> paths, bool allowLargeBackup = false) =>
+        paths.Count == 0 ? 0 : ImportBatch(paths, path => ImportFile(path, allowLargeBackup));
+
+    /// <summary>Import as local changes. Existing IDs are never overwritten.</summary>
+    public int Import(string json) => ImportBatch([json], text => ImportBackup(Json.Read<Backup>(text)));
+
+    private int ImportBatch(IReadOnlyList<string> inputs, Func<string, int> import)
+    {
+        var imported = 0;
         lock (gate)
         {
             using var tx = db.BeginTransaction();
-            var placements = (backup.Placements ?? []).ToLookup(p => p.NoteId);
-            var existingStacks = AllStacks().Select(s => s.Id).ToHashSet();
-            var importedStacks = (backup.Stacks ?? []).DistinctBy(s => s.Id).ToDictionary(s => s.Id,
-                s => s.Id == Guid.Empty ? Guid.Empty : existingStacks.Contains(s.Id) ? Guid.NewGuid() : s.Id);
-            var importedNotes = new Dictionary<Guid, Guid>();
-            foreach (var note in backup.Notes)
-            {
-                if (note.PurgedAt != null) continue;
-                var id = note.OwnerId == owner && Find(note.Id) == null && !IsPurged(note.Id) ? note.Id : Guid.NewGuid();
-                SaveInternal(note with { Id = id, OwnerId = owner, Revision = 0 });
-                importedNotes[note.Id] = id;
-                var p = placements[note.Id].FirstOrDefault();
-                if (p != null) PutPlacement(p with { NoteId = id,
-                    StackId = p.StackId is Guid stackId ? importedStacks.GetValueOrDefault(stackId) : null });
-            }
-            foreach (var image in backup.Images ?? [])
-                if (importedNotes.TryGetValue(image.NoteId, out var id))
-                    PutImage(image with { NoteId = id, Id = Guid.NewGuid() });
-            foreach (var stack in (backup.Stacks ?? []).DistinctBy(s => s.Id))
-                if (stack.Id != Guid.Empty || !existingStacks.Contains(Guid.Empty))
-                    PutStack(stack with { Id = importedStacks[stack.Id], ActiveNoteId = importedNotes.GetValueOrDefault(stack.ActiveNoteId) });
-            foreach (var note in backup.RecoveryVersions ?? [])
-                if (note.PurgedAt == null && !IsPurged(note.Id)) Recover(note);
+            foreach (var input in inputs) imported += import(input);
             tx.Commit();
         }
-        Changed?.Invoke(); return backup.Notes.Count;
+        Changed?.Invoke();
+        return imported;
     }
+
+    private int ImportFile(string path, bool allowLargeBackup)
+    {
+        try
+        {
+            using var input = File.OpenRead(path);
+            if (Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!allowLargeBackup && input.Length > LargeBackupException.LimitMiB * 1024L * 1024)
+                    throw new LargeBackupException(Path.GetFileName(path));
+                return ImportBackup(ReadBackupFile(input));
+            }
+            if (input.Length > MaxTextImportMiB * 1024L * 1024)
+                throw new InvalidDataException(string.Format(L.T("Текстовый файл превышает лимит {0} МиБ."), MaxTextImportMiB));
+            using var reader = new StreamReader(input, Encoding.UTF8);
+            SaveInternal(new Note { Title = Path.GetFileNameWithoutExtension(path), Body = reader.ReadToEnd() });
+            return 1;
+        }
+        catch (Exception ex) when (ex is not LargeBackupException &&
+            ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or SqliteException)
+        {
+            throw new InvalidDataException(Path.GetFileName(path) + "\n" + ex.Message, ex);
+        }
+    }
+
+    private static Backup ReadBackupFile(FileStream input)
+    {
+        Span<byte> prefix = stackalloc byte[4];
+        var read = input.ReadAtLeast(prefix, prefix.Length, throwOnEndOfStream: false);
+        var encoding = prefix[..read] switch
+        {
+            [0, 0, 0xFE, 0xFF, ..] => new UTF32Encoding(bigEndian: true, byteOrderMark: true),
+            [0xFF, 0xFE, 0, 0, ..] => Encoding.UTF32,
+            [0xFE, 0xFF, ..] => Encoding.BigEndianUnicode,
+            [0xFF, 0xFE, ..] => Encoding.Unicode,
+            [0xEF, 0xBB, 0xBF, ..] => Encoding.UTF8,
+            _ => null
+        };
+        input.Position = encoding?.Preamble.Length ?? 0;
+        if (encoding == null || encoding.CodePage == Encoding.UTF8.CodePage)
+            return ReadUtf8(input);
+        using var utf8 = Encoding.CreateTranscodingStream(input, encoding, Encoding.UTF8, leaveOpen: true);
+        return ReadUtf8(utf8);
+
+        static Backup ReadUtf8(Stream stream) => JsonSerializer.Deserialize<Backup>(stream, Json.Options) ??
+            throw new InvalidDataException(L.T("Пустые данные JSON"));
+    }
+
+    private int ImportBackup(Backup backup)
+    {
+        if (backup.Version != 1 || backup.Notes == null || backup.Notes.Any(InvalidBackupNote) ||
+            backup.RecoveryVersions?.Any(InvalidBackupNote) == true ||
+            backup.Placements?.Any(placement => placement is null) == true ||
+            backup.Stacks?.Any(stack => stack is null) == true)
+            throw new InvalidDataException(L.T("Неподдерживаемый формат резервной копии"));
+        var sourceIds = backup.Notes.Select(note => note.Id).ToHashSet();
+        if (sourceIds.Count != backup.Notes.Count)
+            throw new InvalidDataException(L.T("Неподдерживаемый формат резервной копии"));
+        if (backup.Images is { } images && (images.Any(picture => picture is null || !NoteImage.IsValid(picture.Png)) ||
+            images.GroupBy(picture => picture.NoteId).Any(group => group.Count() > NoteImage.MaxPerNote)))
+            throw new InvalidDataException(L.T("В копии есть повреждённые или слишком большие изображения."));
+
+        var importedNotes = new Dictionary<Guid, Guid>(sourceIds.Count);
+        var placements = (backup.Placements ?? []).ToLookup(p => p.NoteId);
+        var existingStacks = AllStacks().Select(s => s.Id).ToHashSet();
+        var importedStacks = (backup.Stacks ?? []).DistinctBy(s => s.Id).ToDictionary(s => s.Id,
+            s => s.Id == Guid.Empty ? Guid.Empty : existingStacks.Contains(s.Id) ? Guid.NewGuid() : s.Id);
+        foreach (var note in backup.Notes)
+        {
+            if (note.PurgedAt != null) continue;
+            var id = note.OwnerId == owner && Find(note.Id) == null && !IsPurged(note.Id) ? note.Id : Guid.NewGuid();
+            SaveInternal(note with { Id = id, OwnerId = owner, Revision = 0 });
+            importedNotes.Add(note.Id, id);
+            var p = placements[note.Id].FirstOrDefault();
+            if (p != null) PutPlacement(p with { NoteId = id,
+                StackId = p.StackId is Guid stackId ? importedStacks.GetValueOrDefault(stackId) : null });
+        }
+        foreach (var image in backup.Images ?? [])
+            if (importedNotes.TryGetValue(image.NoteId, out var id))
+                PutImage(image with { NoteId = id, Id = Guid.NewGuid() });
+        foreach (var stack in (backup.Stacks ?? []).DistinctBy(s => s.Id))
+            if (stack.Id != Guid.Empty || !existingStacks.Contains(Guid.Empty))
+                PutStack(stack with { Id = importedStacks[stack.Id], ActiveNoteId = importedNotes.GetValueOrDefault(stack.ActiveNoteId) });
+        var orphanHistoryIds = new Dictionary<Guid, Guid>();
+        foreach (var note in backup.RecoveryVersions ?? [])
+        {
+            if (note.PurgedAt != null) continue;
+            if (!importedNotes.TryGetValue(note.Id, out var id))
+            {
+                if (sourceIds.Contains(note.Id) || IsPurged(note.Id)) continue;
+                // Older exports can contain history without its note. Keep it separate from existing notes.
+                if (!orphanHistoryIds.TryGetValue(note.Id, out id))
+                    orphanHistoryIds.Add(note.Id, id = Guid.NewGuid());
+            }
+            Recover(note with { Id = id, OwnerId = owner });
+        }
+        return importedNotes.Count;
+    }
+    private static bool InvalidBackupNote(Note? note) =>
+        note is null || note.Id == Guid.Empty || note.Title == null || note.Body == null;
+
     private void ValidateRemote(Note note) { if (note.OwnerId != owner) throw new UnauthorizedAccessException(L.T("Заметка другого аккаунта отклонена")); }
     private void ValidateReply(Outgoing operation, Note note)
     {

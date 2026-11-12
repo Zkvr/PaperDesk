@@ -3,6 +3,9 @@ using PaperDesk.Storage;
 using System.Net;
 using System.Text;
 
+if (args is ["--interrupted-write", var interruptedPath])
+    return InterruptedWriteCheck.WriteUntilInterrupted(interruptedPath);
+
 var tests = new (string Name, Action Run)[]
 {
     ("Unicode checklist toggles only the clicked marker and preserves surrounding text", () => {
@@ -63,6 +66,8 @@ var tests = new (string Name, Action Run)[]
         Equal("Первый текст 🌿", reopened.Find(n.Id)!.Note.Body);
         Equal(1, reopened.Pending().Count);
     })),
+    ("Killing a writer preserves the last committed text and immutable outgoing operation",
+        () => WithPath(InterruptedWriteCheck.Run)),
     ("An invalid SQLite file is preserved and can be moved after a failed open", () => WithPath(path => {
         var bytes = Encoding.UTF8.GetBytes("synthetic damaged SQLite file");
         File.WriteAllBytes(path, bytes);
@@ -74,6 +79,40 @@ var tests = new (string Name, Action Run)[]
         catch (Microsoft.Data.Sqlite.SqliteException) { }
         using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None)) { }
         Equal(true, File.ReadAllBytes(path).SequenceEqual(bytes));
+    })),
+    ("A failed SQLite schema upgrade rolls back and can be retried", () => WithPath(path => {
+        var note = new Note { Body = "keep the existing data" };
+        using (var store = new NoteStore(path)) store.Save(note);
+
+        using var database = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+        database.Open();
+        using var command = database.CreateCommand();
+        command.CommandText = """
+            DROP TABLE desktop_stacks;
+            DROP TABLE note_images;
+            CREATE VIEW note_images AS SELECT 1 AS unexpected;
+            PRAGMA user_version=0;
+            """;
+        command.ExecuteNonQuery();
+
+        Throws<Microsoft.Data.Sqlite.SqliteException>(() => { using var failed = new NoteStore(path); });
+        command.CommandText = "PRAGMA user_version";
+        Equal(0L, (long)command.ExecuteScalar()!);
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name='desktop_stacks'";
+        Equal(0L, (long)command.ExecuteScalar()!);
+
+        command.CommandText = """
+            DROP VIEW note_images;
+            CREATE TABLE note_images(note_id TEXT NOT NULL, id TEXT NOT NULL, png BLOB NOT NULL, PRIMARY KEY(note_id,id));
+            """;
+        command.ExecuteNonQuery();
+        using var reopened = new NoteStore(path);
+        Equal(note.Body, reopened.Find(note.Id)!.Note.Body);
+        Equal(note.Id, reopened.Pending().Single().Note.Id);
+        Equal(0, reopened.ImageLayouts(note.Id).Count);
+        command.CommandText = "PRAGMA user_version";
+        Equal(1L, (long)command.ExecuteScalar()!);
     })),
     ("A delayed ACK preserves a newer local edit", () => WithStore(s => {
         var n = new Note { Body = "one" }; s.Save(n); var op = s.Pending().Single();
@@ -158,10 +197,192 @@ var tests = new (string Name, Action Run)[]
         Equal(512d, other.GetPlacement(n.Id).X);
         Equal(true, Json.Read<Backup>(other.Export()).RecoveryVersions.Any(x => x.Body == "server"));
     })),
-    ("Import collision keeps existing text as an independent copy", () => WithStore(s => {
-        var n = new Note { Body = "original" }; s.Save(n); var backup = s.Export();
-        s.Save(n with { Body = "edited" }); s.Import(backup);
-        Equal(2, s.All().Count); Equal(true, s.All().Any(x => x.Note.Body == "edited"));
+    ("Exported files preserve the backup and Markdown formats", () => WithPath(path => {
+        using var s = new NoteStore(path);
+        var note = new Note { Title = "Заголовок", Body = "Текст 🌿" };
+        s.Save(note);
+        var folder = Path.GetDirectoryName(path)!;
+        var backup = Path.Combine(folder, "backup.json");
+        var markdown = Path.Combine(folder, "notes.md");
+        File.WriteAllText(backup, "old backup");
+        s.ExportFile(backup);
+        s.ExportFile(markdown, markdown: true);
+        Equal("# Заголовок\n\nТекст 🌿", File.ReadAllText(markdown));
+        using var restored = new NoteStore(Path.Combine(folder, "restored.db"));
+        Equal(1, restored.ImportFiles([backup]));
+        Equal(note.Body, restored.Find(note.Id)!.Note.Body);
+    })),
+    ("Failed export replacement leaves the previous backup and removes the temporary file", () => WithPath(path => {
+        using var s = new NoteStore(path);
+        s.Save(new Note { Body = "New contents" });
+        var folder = Path.GetDirectoryName(path)!;
+        var backup = Path.Combine(folder, "backup.json");
+        File.WriteAllText(backup, "previous backup");
+        var replacementRejected = false;
+        using (File.Open(backup, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            try { s.ExportFile(backup); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { replacementRejected = true; }
+        }
+        Equal(true, replacementRejected);
+        Equal("previous backup", File.ReadAllText(backup));
+        Equal(0, Directory.GetFiles(folder, ".paperdesk-export-*.tmp").Length);
+    })),
+    ("Import collision keeps the existing note and moves history, images and placement to the copy", () => WithStore(s => {
+        var note = new Note { Body = "original" };
+        var stack = new DesktopStack(Guid.NewGuid(), "Imported stack", 10, 20, 310, 330, note.Id);
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+V04cAAAAASUVORK5CYII=");
+        var layout = new NoteImageLayout(.2, .3, .4, ImageTextMode.Inline, 1);
+        var backup = new Backup(1, DateTimeOffset.UtcNow, [note],
+            [new Placement { NoteId = note.Id, StackId = stack.Id }], [note with { Body = "previous" }],
+            [stack], [new NoteImage(note.Id, Guid.NewGuid(), png, layout)]);
+        s.Save(note with { Body = "edited" });
+        s.SaveStack(stack with { Name = "Existing stack" });
+
+        Equal(1, s.Import(Json.Write(backup)));
+
+        Equal("edited", s.Find(note.Id)!.Note.Body);
+        var copy = s.All().Single(row => row.Note.Id != note.Id).Note;
+        Equal("original", copy.Body);
+        var copiedStack = s.AllStacks().Single(group => group.Id != stack.Id);
+        Equal("Existing stack", s.GetStack(stack.Id)!.Name);
+        Equal(copy.Id, copiedStack.ActiveNoteId);
+        Equal<Guid?>(copiedStack.Id, s.GetPlacement(copy.Id).StackId);
+        var image = s.ImageLayouts(copy.Id).Single();
+        Equal(layout, image.Layout);
+        Equal(true, png.SequenceEqual(s.ReadImage(copy.Id, image.Id)!));
+        Equal(0, s.ImageIds(note.Id).Count);
+        var previous = Json.Read<Backup>(s.Export()).RecoveryVersions.Single();
+        Equal(copy.Id, previous.Id);
+        Equal("previous", previous.Body);
+    })),
+    ("Legacy orphan history does not attach to an existing note or keep a foreign owner", () => WithStore(s => {
+        var note = new Note { Body = "existing" };
+        s.Save(note);
+        var orphan = note with { OwnerId = Guid.NewGuid(), Body = "legacy history" };
+        var backup = new Backup(1, DateTimeOffset.UtcNow, [], [],
+            [orphan, orphan with { Body = "another snapshot" }]);
+
+        Equal(0, s.Import(Json.Write(backup)));
+
+        var history = Json.Read<Backup>(s.Export()).RecoveryVersions;
+        Equal(2, history.Count);
+        Equal(1, history.Select(version => version.Id).Distinct().Count());
+        Equal(false, history.Any(version => version.Id == note.Id || version.OwnerId != note.OwnerId));
+        Equal("existing", s.All().Single().Note.Body);
+    })),
+    ("Ambiguous backup IDs leave notes and queued writes intact", () => WithStore(s => {
+        var existing = new Note { Body = "existing" };
+        var duplicate = new Note { Body = "first" };
+        s.Save(existing);
+        var operations = s.Pending().ToArray();
+        var backup = new Backup(1, DateTimeOffset.UtcNow,
+            [duplicate, duplicate with { Body = "second" }], [], []);
+
+        Throws<InvalidDataException>(() => s.Import(Json.Write(backup)));
+
+        Equal(existing.Id, s.All().Single().Note.Id);
+        Equal(true, operations.SequenceEqual(s.Pending()));
+    })),
+    ("A later failed file rolls back the entire import selection", () => WithPath(path => {
+        using var s = new NoteStore(path);
+        var existing = new Note { Body = "existing" };
+        s.Save(existing);
+        var operation = s.Pending().Single();
+        var changes = 0;
+        s.Changed += () => changes++;
+        var folder = Path.GetDirectoryName(path)!;
+        var markdown = Path.Combine(folder, "first.md");
+        var json = Path.Combine(folder, "second.json");
+        var damaged = Path.Combine(folder, "damaged.json");
+        var note = new Note { Body = "backup body" };
+        var stack = new DesktopStack(Guid.NewGuid(), "Backup stack", 10, 20, 310, 330, note.Id);
+        File.WriteAllText(markdown, "# Imported note");
+        File.WriteAllText(json, Json.Write(new Backup(1, DateTimeOffset.UtcNow, [note],
+            [new Placement { NoteId = note.Id, StackId = stack.Id }], [note with { Body = "old history" }], [stack])));
+        File.WriteAllText(damaged, "{broken");
+
+        Exception? error = null;
+        try { s.ImportFiles([markdown, json, damaged]); }
+        catch (Exception ex) { error = ex; }
+
+        Equal(1, s.All().Count);
+        Equal(existing.Id, s.All().Single().Note.Id);
+        Equal(operation, s.Pending().Single());
+        Equal(0, s.AllStacks().Count);
+        Equal(0, Json.Read<Backup>(s.Export()).RecoveryVersions.Count);
+        Equal(0, changes);
+        Equal(true, error is InvalidDataException && error.Message.StartsWith("damaged.json\n", StringComparison.Ordinal));
+    })),
+    ("Mixed files commit together and notify once", () => WithPath(path => {
+        var folder = Path.GetDirectoryName(path)!;
+        var text = Path.Combine(folder, "Заметка.txt");
+        var json = Path.Combine(folder, "second.JSON");
+        var note = new Note { Body = "backup body" };
+        File.WriteAllText(text, "Привет 🌿", Encoding.Unicode);
+        File.WriteAllText(json, Json.Write(new Backup(1, DateTimeOffset.UtcNow, [note], [], [])));
+
+        using (var s = new NoteStore(path))
+        {
+            var changes = 0;
+            s.Changed += () => changes++;
+            Equal(2, s.ImportFiles([text, json]));
+            Equal(1, changes);
+        }
+
+        using var reopened = new NoteStore(path);
+        Equal("Привет 🌿", reopened.All().Single(row => row.Note.Title == "Заметка").Note.Body);
+        Equal(note.Body, reopened.Find(note.Id)!.Note.Body);
+        Equal(2, reopened.Pending().Count);
+    })),
+    ("JSON file import accepts UTF-8, UTF-16 and UTF-32 backups", () => WithPath(path => {
+        using var s = new NoteStore(path);
+        var source = Path.Combine(Path.GetDirectoryName(path)!, "legacy.json");
+        var body = "Старая копия 🌿";
+        var backup = Json.Write(new Backup(1, DateTimeOffset.UtcNow, [new Note { Body = body }], [], []));
+        Encoding[] encodings = [new UTF8Encoding(false), Encoding.UTF8, Encoding.Unicode,
+            Encoding.BigEndianUnicode, Encoding.UTF32, new UTF32Encoding(true, true)];
+        foreach (var encoding in encodings)
+        {
+            File.WriteAllText(source, backup, encoding);
+            Equal(1, s.ImportFiles([source]));
+        }
+        Equal(encodings.Length, s.All().Count);
+        Equal(true, s.All().All(row => row.Note.Body == body));
+    })),
+    ("Oversized text import rolls back earlier files", () => WithPath(path => {
+        using var s = new NoteStore(path);
+        var folder = Path.GetDirectoryName(path)!;
+        var first = Path.Combine(folder, "first.md");
+        var oversized = Path.Combine(folder, "oversized.txt");
+        File.WriteAllText(first, "Small file");
+        using (var file = File.Create(oversized)) file.SetLength(16L * 1024 * 1024 + 1);
+
+        Throws<InvalidDataException>(() => s.ImportFiles([first, oversized]));
+        Equal(0, s.All().Count);
+        Equal(0, s.Pending().Count);
+    })),
+    ("A large version 1 backup rolls back until explicitly confirmed and can then be restored", () => WithPath(path => {
+        using var s = new NoteStore(path);
+        var folder = Path.GetDirectoryName(path)!;
+        var markdown = Path.Combine(folder, "first.md");
+        var backupPath = Path.Combine(folder, "large.json");
+        var note = new Note { Body = "Legacy backup" };
+        File.WriteAllText(markdown, "First file");
+        File.WriteAllText(backupPath, Json.Write(new Backup(1, DateTimeOffset.UtcNow, [note], [], [])));
+        using (var large = File.Open(backupPath, FileMode.Append))
+        {
+            var padding = new byte[1024 * 1024];
+            Array.Fill(padding, (byte)' ');
+            for (var i = 0; i < LargeBackupException.LimitMiB; i++) large.Write(padding);
+        }
+
+        Throws<LargeBackupException>(() => s.ImportFiles([markdown, backupPath]));
+        Equal(0, s.All().Count);
+        Equal(0, s.Pending().Count);
+        Equal(2, s.ImportFiles([markdown, backupPath], allowLargeBackup: true));
+        Equal(note.Body, s.Find(note.Id)!.Note.Body);
+        Equal(2, s.Pending().Count);
     })),
     ("Bulk archive is undoable and permanent deletion is limited to Trash", () => WithStore(s => {
         var a = new Note { Body = "do not keep this text" };
@@ -243,7 +464,11 @@ var tests = new (string Name, Action Run)[]
         Equal("offline", s.Find(n.Id)!.Note.Body); Equal("remote", s.Find(n.Id)!.Conflict!.Body); Equal(0, s.Pending().Count);
     })),
     ("Damaged backup does not partially import", () => WithStore(s => {
-        Throws<Exception>(() => s.Import("{broken")); Equal(0, s.All().Count);
+        Throws<System.Text.Json.JsonException>(() => s.Import("{broken"));
+        var backup = new Backup(1, DateTimeOffset.UtcNow, [new Note()], [], []);
+        Throws<InvalidDataException>(() => s.Import(Json.Write(backup with { Placements = [null!] })));
+        Throws<InvalidDataException>(() => s.Import(Json.Write(backup with { Stacks = [null!] })));
+        Equal(0, s.All().Count);
     }))
 };
 var failures = 0;

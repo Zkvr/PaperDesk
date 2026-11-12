@@ -83,6 +83,10 @@
   </Style>
   <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{StaticResource Ink}"/></Style>
   <Style TargetType="Separator"><Setter Property="Background" Value="#16FFFFFF"/><Setter Property="Margin" Value="4,9"/></Style>
+  <Path x:Key="FormatGlyph" x:Shared="False" Width="16" Height="16" Stretch="Uniform"
+        Data="M1,13 L5,3 L9,13 M2.4,9.5 H7.6 M11,5 H16 M11,9 H16 M11,13 H16"
+        Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+        StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
   <Style TargetType="ContextMenu"><Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="Background" Value="#F0252931"/><Setter Property="BorderBrush" Value="#25FFFFFF"/><Setter Property="Padding" Value="5"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="{TemplateBinding Padding}"><ScrollViewer MaxHeight="680"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/></ScrollViewer></Border></ControlTemplate></Setter.Value></Setter></Style>
   <Style TargetType="MenuItem">
     <Setter Property="Foreground" Value="{StaticResource Ink}"/>
@@ -97,7 +101,10 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <TextBlock x:Name="Check" Text="✓" Margin="0,0,8,0" Visibility="Collapsed"/>
+              <Grid>
+                <ContentPresenter x:Name="ItemIcon" ContentSource="Icon" Margin="0,0,9,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="Check" Text="✓" Margin="0,0,8,0" Visibility="Collapsed"/>
+              </Grid>
               <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"/>
               <TextBlock x:Name="Arrow" Grid.Column="2" Text="›" Margin="12,0,0,0" Visibility="Collapsed"/>
               <Popup x:Name="PART_Popup" Grid.ColumnSpan="3" IsOpen="{TemplateBinding IsSubmenuOpen}"
@@ -113,7 +120,8 @@
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="HasItems" Value="True"><Setter TargetName="Arrow" Property="Visibility" Value="Visible"/></Trigger>
-            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Check" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="Icon" Value="{x:Null}"><Setter TargetName="ItemIcon" Property="Visibility" Value="Collapsed"/></Trigger>
+            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Check" Property="Visibility" Value="Visible"/><Setter TargetName="ItemIcon" Property="Visibility" Value="Collapsed"/></Trigger>
             <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#1CFFFFFF"/></Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
           </ControlTemplate.Triggers>

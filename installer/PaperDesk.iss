@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.3.0-preview.18"
+  #define AppVersion "0.4.0-beta"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\artifacts\release-win-x64"
@@ -43,9 +43,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 [CustomMessages]
 english.StartMenuShortcut=Add a Start menu shortcut
 russian.StartMenuShortcut=Добавить ярлык в меню «Пуск»
+english.UpdateStartupFailed=PaperDesk could not update its automatic startup command.
+russian.UpdateStartupFailed=PaperDesk не удалось обновить команду автозапуска.
 
 [Files]
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "PaperDesk.installed.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\PaperDesk"; Filename: "{app}\PaperDesk.exe"; WorkingDir: "{app}"; Tasks: startmenu
@@ -55,10 +58,26 @@ Name: "{autodesktop}\PaperDesk"; Filename: "{app}\PaperDesk.exe"; WorkingDir: "{
 Filename: "{app}\PaperDesk.exe"; Description: "{cm:LaunchProgram,PaperDesk}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+const
+  RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
+
+procedure CurStepChanged(Step: TSetupStep);
+var Command, Executable, AdjacentData: String;
+begin
+  if (Step = ssPostInstall) and RegQueryStringValue(HKCU, RunKey, 'PaperDesk', Command) then
+  begin
+    Executable := '"' + ExpandConstant('{app}\PaperDesk.exe') + '"';
+    AdjacentData := '"' + ExpandConstant('{app}\data') + '"';
+    if Uppercase(Command) = Uppercase(Executable + ' --startup --data ' + AdjacentData) then
+      if not RegWriteStringValue(HKCU, RunKey, 'PaperDesk', Executable + ' --startup') then
+        RaiseException(CustomMessage('UpdateStartupFailed'));
+  end;
+end;
+
 procedure CurUninstallStepChanged(Step: TUninstallStep);
 var Command: String;
 begin
-  if (Step = usUninstall) and RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'PaperDesk', Command) then
+  if (Step = usUninstall) and RegQueryStringValue(HKCU, RunKey, 'PaperDesk', Command) then
     if Pos(Uppercase('"' + ExpandConstant('{app}\PaperDesk.exe') + '" '), Uppercase(Command)) = 1 then
-      RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'PaperDesk');
+      RegDeleteValue(HKCU, RunKey, 'PaperDesk');
 end;

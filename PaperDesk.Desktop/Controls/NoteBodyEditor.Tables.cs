@@ -18,7 +18,12 @@ public sealed partial class NoteBodyEditor
 
         void Add(string label, TableAction action, bool enabled = true)
         {
-            var item = new MenuItem { Header = L.T(label), IsEnabled = enabled };
+            var item = FormatItem(label, action switch
+            {
+                TableAction.AddRow => "+↓", TableAction.AddColumn => "+→",
+                TableAction.RemoveRow => "−↓", TableAction.RemoveColumn => "−→", _ => "×"
+            });
+            item.IsEnabled = enabled;
             item.Click += (_, _) => run(action);
             menu.Items.Add(item);
         }

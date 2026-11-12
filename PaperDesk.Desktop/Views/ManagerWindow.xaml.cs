@@ -1,7 +1,8 @@
-using System.Text;
+using System.Text.Json;
 using System.Windows.Input;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using Microsoft.Data.Sqlite;
 using PaperDesk.Desktop.Services;
 using PaperDesk.Desktop.ViewModels;
 using PaperDesk.Desktop.Controls;
@@ -22,6 +23,7 @@ public partial class ManagerWindow : Window
         desk = controller; vm = new(desk); InitializeComponent(); DataContext = vm;
         cardDrag = new DesktopCardDrag(this, Cards, desk, () => selecting);
         EditBody.ConnectTitle(EditTitle);
+        EditBody.ConnectFormatMenu(FormatButton, EditorPaper);
         EditorPictures.ConnectDrop(EditorPaper, EditBody);
         if (Application.Current is App) EditBody.EnableWebEditor(desk, CreateNote);
         desk.Changed += Refresh;
@@ -163,7 +165,7 @@ public partial class ManagerWindow : Window
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "PaperDesk"); }
         finally { purging = false; BulkPurge.IsEnabled = true; }
     }
-    private void FormatClick(object sender, RoutedEventArgs e) => EditBody.OpenFormatMenu((Button)sender);
+    private void FormatClick(object sender, RoutedEventArgs e) => EditBody.OpenFormatMenu();
     private void UpdateEditorWidth() => UpdateEditorWidth(selected.HasValue);
     private void UpdateEditorWidth(bool open) =>
         EditorColumn.Width = new GridLength(open ? Math.Clamp((ActualWidth - 188) * .44, 335, 570) : 0);
@@ -179,7 +181,6 @@ public partial class ManagerWindow : Window
 
     private void AddImagesClick(object sender, RoutedEventArgs e) => EditorPictures.Browse();
 
-    private void CardsSizeChanged(object sender, SizeChangedEventArgs e) => vm.SetCardWidth(e.NewSize.Width);
     private void EditorChanged(object sender, TextChangedEventArgs e)
     {
         if (loading || selected is not Guid id) return;
@@ -336,10 +337,12 @@ public partial class ManagerWindow : Window
         var store = desk.Store;
         desk.FlushWindows();
         var dialog = new Microsoft.Win32.SaveFileDialog { FileName = "PaperDesk-" + DateTime.Now.ToString("yyyy-MM-dd"), Filter = L.T("Резервная копия JSON|*.json|Markdown|*.md") };
-        if (dialog.ShowDialog(this) == true && CheckFileProfile(store))
+        if (dialog.ShowDialog(this) != true || !CheckFileProfile(store)) return;
+        try { store.ExportFile(dialog.FileName, markdown: dialog.FilterIndex != 1); }
+        catch (Exception ex) when (IsFileOperationError(ex))
         {
-            var text = dialog.FilterIndex == 1 ? store.Export() : string.Join("\n\n---\n\n", store.All().Select(x => "# " + x.Note.Title + "\n\n" + x.Note.Body));
-            File.WriteAllText(dialog.FileName, text, new UTF8Encoding(false));
+            ErrorLog.Write(desk.DataRoot, ErrorLog.Area.Export, ex);
+            MessageBox.Show(this, ex.Message, L.T("Экспорт"));
         }
     }
     private void ImportClick(object sender, RoutedEventArgs e)
@@ -349,16 +352,27 @@ public partial class ManagerWindow : Window
         if (dialog.ShowDialog(this) != true || !CheckFileProfile(store)) return;
         try
         {
-            foreach (var path in dialog.FileNames)
+            try { store.ImportFiles(dialog.FileNames); }
+            catch (LargeBackupException ex)
             {
-                var text = File.ReadAllText(path, Encoding.UTF8);
-                if (Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase)) store.Import(text);
-                else store.Save(new Note { Title = Path.GetFileNameWithoutExtension(path), Body = text });
+                if (MessageBox.Show(this, ex.Message + "\n\n" +
+                    L.T("Для больших копий потребуется больше памяти. Импортировать выбранные файлы?"),
+                    L.T("Импорт"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes ||
+                    !CheckFileProfile(store)) return;
+                store.ImportFiles(dialog.FileNames, allowLargeBackup: true);
             }
-            Refresh();
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, L.T("Импорт")); }
+        catch (Exception ex) when (IsFileOperationError(ex))
+        {
+            ErrorLog.Write(desk.DataRoot, ErrorLog.Area.Import, ex);
+            MessageBox.Show(this, ex.Message, L.T("Импорт"));
+            return;
+        }
+        Refresh();
     }
+
+    private static bool IsFileOperationError(Exception error) =>
+        error is IOException or UnauthorizedAccessException or InvalidDataException or SqliteException or JsonException;
 
     private bool CheckFileProfile(NoteStore store)
     {

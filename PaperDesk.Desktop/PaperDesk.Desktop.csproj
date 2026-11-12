@@ -4,11 +4,12 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>PaperDesk</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>paperdesk.ico</ApplicationIcon>
-    <Version>0.3.0-preview.18</Version><Product>PaperDesk</Product>
+    <Version>0.4.0-beta</Version><Product>PaperDesk</Product>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets/mark.png"/>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <PackageReference Include="VirtualizingWrapPanel" Version="2.5.4" />
     <Content Include="WebEditor/index.html;WebEditor/editor.css;WebEditor/app.bundle.mjs;WebEditor/THIRD-PARTY-NOTICES.txt"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="PaperDesk.Desktop.Tests" />

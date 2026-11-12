@@ -56,6 +56,7 @@ public sealed class DeskController : IDisposable
         refresh.Tick += (_, _) => { if (pendingRefresh) { pendingRefresh = false; ReconcileWindows(); Changed?.Invoke(); } };
         refresh.Start();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged += PowerModeChanged;
     }
     private void RegisterAtStartup(HotkeyHost host, string shortcut, string action)
     {
@@ -667,11 +668,28 @@ public sealed class DeskController : IDisposable
         stickies.Add(window.NoteId, window);
         window.Closed += (_, _) => stickies.Remove(window.NoteId);
     }
-    private void DisplayChanged(object? sender, EventArgs e) => Application.Current.Dispatcher.BeginInvoke(() => { foreach (var w in stickies.Values) w.EnsureOnScreen(); });
+    private void DisplayChanged(object? sender, EventArgs e) => RestoreVisibleWindows();
+    private void PowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) RestoreVisibleWindows();
+    }
+    private void RestoreVisibleWindows()
+    {
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            if (disposed) return;
+            foreach (var window in stickies.Values)
+            {
+                window.ApplyLayer();
+                window.EnsureOnScreen();
+            }
+        });
+    }
     public void Dispose()
     {
         if (disposed) return; disposed = true; refresh.Stop(); FlushWindows(); CloseStickies(); tray.Visible = false; tray.Dispose(); hotkey.Dispose(); summonHotkey.Dispose();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
         Store.Dispose();
     }
 }

@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using PaperDesk.Desktop.Services;
 using PaperDesk.Desktop.Controls;
 
@@ -12,13 +12,20 @@ public sealed record NoteCard(Guid Id, string Title, string Preview, string Date
     public string Section => L.T(OnDesktop ? "На столе" : "Не на столе");
     public bool HasStack => StackName.Length != 0;
 }
-public sealed class ManagerViewModel(DeskController desk) : INotifyPropertyChanged
+public sealed class ManagerViewModel : INotifyPropertyChanged
 {
-    public ObservableCollection<NoteCard> Notes { get; } = new();
+    private readonly DeskController desk;
+    private readonly CardCollection notes = new();
+    public ReadOnlyObservableCollection<NoteCard> Notes { get; }
+
+    public ManagerViewModel(DeskController desk)
+    {
+        this.desk = desk;
+        Notes = new(notes);
+    }
     public string Account => desk.Account;
     public string Status => desk.Status;
     public string Count => Notes.Count.ToString();
-    public int CardColumns { get; private set; } = 3;
     public int AllCount { get; private set; }
     public int VisibleCount { get; private set; }
     public int OffDeskCount => AllCount - VisibleCount;
@@ -31,14 +38,6 @@ public sealed class ManagerViewModel(DeskController desk) : INotifyPropertyChang
     public string Search { get; set; } = "";
     public int Sort { get; set; }
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    public void SetCardWidth(double width)
-    {
-        var columns = Math.Clamp((int)((width - 16) / 183), 1, 7);
-        if (columns == CardColumns) return;
-        CardColumns = columns;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CardColumns)));
-    }
 
     public void Refresh()
     {
@@ -95,11 +94,7 @@ public sealed class ManagerViewModel(DeskController desk) : INotifyPropertyChang
                 row.Conflict != null ? L.T("⚠ Конфликт") : rejected.Contains(n.Id) ? L.T("⚠ Правка отклонена") : "",
                 row.Conflict != null, p.Favorite, onDesktop, stackName);
         }).ToList();
-        if (!Notes.SequenceEqual(cards))
-        {
-            Notes.Clear();
-            foreach (var card in cards) Notes.Add(card);
-        }
+        notes.Update(cards);
         foreach (var prop in new[] { nameof(Account), nameof(Status), nameof(Count), nameof(AllCount), nameof(VisibleCount), nameof(OffDeskCount), nameof(FavoriteCount), nameof(ArchiveCount), nameof(TrashCount) }) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
     }
 
@@ -134,5 +129,30 @@ public sealed class ManagerViewModel(DeskController desk) : INotifyPropertyChang
             summary.Add(new PaperInline(line).Text);
         }
         return string.Join('\n', summary);
+    }
+
+    private sealed class CardCollection : ObservableCollection<NoteCard>
+    {
+        public void Update(IReadOnlyList<NoteCard> cards)
+        {
+            if (Count == cards.Count)
+            {
+                var first = 0;
+                while (first < Count && this[first] == cards[first]) first++;
+                if (first == Count) return;
+                if (this[first].Id == cards[first].Id &&
+                    this[first].OnDesktop == cards[first].OnDesktop &&
+                    Enumerable.Range(first + 1, Count - first - 1).All(i => this[i] == cards[i]))
+                {
+                    this[first] = cards[first];
+                    return;
+                }
+            }
+            Items.Clear();
+            foreach (var card in cards) Items.Add(card);
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
     }
 }

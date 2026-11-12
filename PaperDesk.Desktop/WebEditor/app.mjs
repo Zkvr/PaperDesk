@@ -127,29 +127,29 @@ function showMenu(entries, x = 8, y = 4) {
   menu.style.top = Math.max(0, Math.min(y, innerHeight - menu.offsetHeight)) + 'px'
 }
 
-function format() {
+const formatActions = {
+  Bold: chain => chain.toggleBold(),
+  Italic: chain => chain.toggleItalic(),
+  Strike: chain => chain.toggleStrike(),
+  Code: chain => chain.toggleCode(),
+  Heading: chain => chain.toggleHeading({ level: 2 }),
+  Bullet: chain => chain.toggleBulletList(),
+  Number: chain => chain.toggleOrderedList(),
+  Task: chain => chain.toggleTaskList(),
+  Quote: chain => chain.toggleBlockquote(),
+  Spoiler: chain => chain.setDetails(),
+  Table: chain => chain.insertTable({ rows: 2, cols: 2, withHeaderRow: true }),
+  AddRow: chain => chain.addRowAfter(),
+  AddColumn: chain => chain.addColumnAfter(),
+  RemoveRow: chain => chain.deleteRow(),
+  RemoveColumn: chain => chain.deleteColumn(),
+  RemoveTable: chain => chain.deleteTable(),
+}
+
+function requestFormat() {
   if (readOnly) return
-  const entries = [
-    [label('Жирный', 'Bold'), () => editor.chain().focus().toggleBold().run()],
-    [label('Курсив', 'Italic'), () => editor.chain().focus().toggleItalic().run()],
-    [label('Зачеркнуть', 'Strike'), () => editor.chain().focus().toggleStrike().run()],
-    [label('Код', 'Code'), () => editor.chain().focus().toggleCode().run()],
-    [label('Заголовок', 'Heading'), () => editor.chain().focus().toggleHeading({ level: 2 }).run()],
-    [label('Список', 'Bullet list'), () => editor.chain().focus().toggleBulletList().run()],
-    [label('Нумерованный список', 'Numbered list'), () => editor.chain().focus().toggleOrderedList().run()],
-    [label('Чек-лист', 'Checklist'), () => editor.chain().focus().toggleTaskList().run()],
-    [label('Цитата', 'Quote'), () => editor.chain().focus().toggleBlockquote().run()],
-    [label('Спойлер', 'Spoiler'), () => editor.chain().focus().setDetails().run()],
-    [label('Таблица', 'Table'), () => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()],
-  ]
-  if (editor.isActive('table')) entries.push(
-    [label('Добавить строку', 'Add row'), () => editor.chain().focus().addRowAfter().run()],
-    [label('Добавить столбец', 'Add column'), () => editor.chain().focus().addColumnAfter().run()],
-    [label('Удалить строку', 'Delete row'), () => editor.chain().focus().deleteRow().run()],
-    [label('Удалить столбец', 'Delete column'), () => editor.chain().focus().deleteColumn().run()],
-    [label('Удалить таблицу', 'Delete table'), () => editor.chain().focus().deleteTable().run()],
-  )
-  showMenu(entries)
+  menu.hidden = true
+  send('formatMenu', { inTable: editor.isActive('table') })
 }
 
 document.addEventListener('contextmenu', event => {
@@ -179,7 +179,7 @@ document.addEventListener('contextmenu', event => {
 document.addEventListener('pointerdown', event => { if (!menu.contains(event.target)) menu.hidden = true })
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !menu.hidden) { menu.hidden = true; event.preventDefault() }
-  if (event.ctrlKey && event.shiftKey && event.code === 'KeyF') { event.preventDefault(); format() }
+  if (event.ctrlKey && event.shiftKey && event.code === 'KeyF') { event.preventDefault(); requestFormat() }
   if (event.ctrlKey && !event.shiftKey && event.code === 'KeyN') { event.preventDefault(); send('newNote') }
   if (event.shiftKey && event.key === 'Tab' && !editor.isActive('table')) { event.preventDefault(); send('title') }
 })
@@ -187,7 +187,9 @@ document.addEventListener('keydown', event => {
 bridge?.addEventListener('message', ({ data }) => {
   if (data.type === 'load') load(data)
   else if (data.revision === scope?.revision) {
-    if (data.type === 'format') format()
+    if (data.type === 'format') requestFormat()
+    if (data.type === 'formatAction' && !readOnly && Object.hasOwn(formatActions, data.action))
+      formatActions[data.action](editor.chain().focus()).run()
     if (data.type === 'focus') editor.commands.focus()
     if (data.type === 'blur') { menu.hidden = true; editor.commands.blur() }
   }

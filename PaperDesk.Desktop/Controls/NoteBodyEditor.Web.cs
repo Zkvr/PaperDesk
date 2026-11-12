@@ -15,6 +15,7 @@ public sealed partial class NoteBodyEditor
     private const int MaxWebMessage = (BrowserImageDrop.MaxInputBytes + 2) / 3 * 4 + 4096;
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
     private WebView2CompositionControl? webEditor;
+    private DispatcherTimer? webStartupTimeout;
     private readonly List<WebDocument> webDocuments = [];
     private DeskController? webDesk;
     private Action? webNewNote;
@@ -79,17 +80,21 @@ public sealed partial class NoteBodyEditor
             core.NewWindowRequested += (_, e) => e.Handled = true;
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.DownloadStarting += (_, e) => e.Cancel = true;
-            core.ProcessFailed += (_, e) => FailWebEditor($"process {e.ProcessFailedKind}");
+            core.ProcessFailed += (_, e) =>
+            {
+                if (webEditor == host) FailWebEditor($"process {e.ProcessFailedKind}");
+            };
             core.NavigationCompleted += (_, e) =>
             {
-                if (!e.IsSuccess) FailWebEditor($"navigation {e.WebErrorStatus}");
+                if (webEditor == host && !e.IsSuccess) FailWebEditor($"navigation {e.WebErrorStatus}");
             };
             core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All, CoreWebView2WebResourceRequestSourceKinds.All);
             core.WebResourceRequested += ServeWebResource;
             core.WebMessageReceived += ReceiveWebMessage;
+            webStartupTimeout = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(12) };
+            webStartupTimeout.Tick += (_, _) => FailWebEditor("page did not start");
+            webStartupTimeout.Start();
             host.Source = new Uri(EditorPage);
-            await Task.Delay(TimeSpan.FromSeconds(12));
-            if (webEditor == host && !IsWebActive) FailWebEditor("page did not start");
         }
         catch (Exception error) when (error is COMException or InvalidOperationException or IOException or
             UnauthorizedAccessException or WebView2RuntimeNotFoundException)
@@ -141,7 +146,13 @@ public sealed partial class NoteBodyEditor
     {
         if (webEditor is not { } host) return;
         webEditor = null;
+        StopWebStartupTimeout();
         webDocuments.Clear();
+        if (host.CoreWebView2 is { } core)
+        {
+            core.WebResourceRequested -= ServeWebResource;
+            core.WebMessageReceived -= ReceiveWebMessage;
+        }
         if (IsWebActive)
         {
             IsWebActive = false;
@@ -152,6 +163,12 @@ public sealed partial class NoteBodyEditor
         }
         ((Grid)Content).Children.Remove(host);
         host.Dispose();
+    }
+
+    private void StopWebStartupTimeout()
+    {
+        webStartupTimeout?.Stop();
+        webStartupTimeout = null;
     }
 
     private void SyncWebDocument()
@@ -188,10 +205,10 @@ public sealed partial class NoteBodyEditor
         russian = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru"
     }, WebJson);
 
-    private void SendWebCommand(string type)
+    private void SendWebCommand(string type, string? action = null)
     {
         if (!IsWebActive || webEditor?.CoreWebView2 is not { } core || webDocuments.LastOrDefault() is not { } document) return;
-        core.PostWebMessageAsJson(JsonSerializer.Serialize(new { type, revision = document.Revision }, WebJson));
+        core.PostWebMessageAsJson(JsonSerializer.Serialize(new { type, revision = document.Revision, action }, WebJson));
     }
 
     private void SetWebEditing(bool editing)
@@ -209,6 +226,7 @@ public sealed partial class NoteBodyEditor
         catch (JsonException) { return; }
         if (message?.Type == "ready" && !IsWebActive)
         {
+            StopWebStartupTimeout();
             EndEdit();
             IsWebActive = true;
             ToolTip = null;
@@ -234,7 +252,8 @@ public sealed partial class NoteBodyEditor
         var anchor = Math.Clamp(message.Anchor, 0, row.Note.Body.AsSpan().Count('\n') + 1);
         switch (message.Type)
         {
-            case "focus": SetWebEditing(message.Editing); break;
+            case "focus": SetWebEditing(message.Editing || formatMenu?.IsOpen == true); break;
+            case "formatMenu" when editable: OpenWebFormatMenu(current, message.InTable); break;
             case "title": titleBox?.Focus(); break;
             case "newNote": webNewNote?.Invoke(); break;
             case "image" when message.Id is Guid image:
@@ -278,7 +297,7 @@ public sealed partial class NoteBodyEditor
     }
 
     private sealed record WebMessage(string Type, Guid Revision, string? Body, string? Before, WebPicture[]? Images,
-        bool Editing, Guid? Id, string? Action, string? Data, int Anchor);
+        bool Editing, Guid? Id, string? Action, string? Data, int Anchor, bool InTable);
 
     private sealed record WebPicture(Guid Id, string Mode, double X, double Y, double Width, int Anchor)
     {
