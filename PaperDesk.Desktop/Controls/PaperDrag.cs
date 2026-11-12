@@ -110,6 +110,34 @@ public sealed class PaperDrag
         var delta=fromDevice.Transform(physicalDelta);
         return new Rect(original.Left+delta.X,original.Top+delta.Y,original.Width,original.Height);
     }
+
+    internal static Vector? SnapOffset(Rect sheet, IEnumerable<Rect> neighbours, double gap, double threshold)
+    {
+        double? x = null, y = null;
+        foreach (var neighbour in neighbours)
+        {
+            if (neighbour.IsEmpty) continue;
+            if (Overlap(sheet.Top, sheet.Bottom, neighbour.Top, neighbour.Bottom) >= threshold)
+            {
+                Consider(ref x, neighbour.Left - sheet.Right - gap);
+                Consider(ref x, neighbour.Right - sheet.Left + gap);
+            }
+            if (Overlap(sheet.Left, sheet.Right, neighbour.Left, neighbour.Right) >= threshold)
+            {
+                Consider(ref y, neighbour.Top - sheet.Bottom - gap);
+                Consider(ref y, neighbour.Bottom - sheet.Top + gap);
+            }
+        }
+        return x.HasValue || y.HasValue ? new Vector(x ?? 0, y ?? 0) : null;
+
+        void Consider(ref double? closest, double offset)
+        {
+            var distance = Math.Abs(offset);
+            if (distance <= threshold && (!closest.HasValue || distance < Math.Abs(closest.Value))) closest = offset;
+        }
+        static double Overlap(double start, double end, double otherStart, double otherEnd) =>
+            Math.Min(end, otherEnd) - Math.Max(start, otherStart);
+    }
 }
 
 internal sealed class PaperDragTrack

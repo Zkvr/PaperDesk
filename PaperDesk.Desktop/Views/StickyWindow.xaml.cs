@@ -25,6 +25,10 @@ public partial class StickyWindow : Window
     private readonly PaperDragResponse dragResponse;
     private readonly PaperDrag paperDrag;
     private bool dragging, peeling;
+    private static readonly Brush DragCue = ThemePalette.Brush(Color.FromRgb(112, 89, 50), 115);
+    private static readonly Brush SnapCue = ThemePalette.Brush(Color.FromRgb(38, 98, 87), 220);
+    private string? shadowStyle;
+    private double shadowDepth;
     private Popup? tools;
     private Vector rearPull1, rearPull2;
     private static readonly DependencyPropertyKey IsToolsOpenPropertyKey =
@@ -36,7 +40,7 @@ public partial class StickyWindow : Window
     {
         desk = controller; NoteId = id; StackId = desk.SurfaceStack(id);
         InitializeComponent(); var p = desk.WindowPlacement(id, StackId);
-        Left = p.X; Top = p.Y; Width = Math.Clamp(p.Width, MinWidth, 1600); Height = Math.Clamp(p.Height, MinHeight, 1400); Opacity = Math.Clamp(p.Opacity, .94, 1);
+        Left = p.X; Top = p.Y; Width = Math.Clamp(p.Width, MinWidth, 1600); Height = Math.Clamp(p.Height, MinHeight, 1400);
         BodyBox.ConnectTitle(TitleBox);
         BodyBox.ConnectFormatMenu(FormatButton, Paper);
         Pictures.ConnectDrop(Paper, BodyBox);
@@ -55,11 +59,6 @@ public partial class StickyWindow : Window
             hasRendered = true;
             if (animateOpening) RevealPaper();
         };
-        IsVisibleChanged += (_, _) =>
-        {
-            if (!IsVisible) CloseTools();
-            else if (hasRendered) { EnsureOnScreen(); RevealPaper(); }
-        };
         layerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         layerTimer.Tick += (_, _) =>
         {
@@ -67,7 +66,16 @@ public partial class StickyWindow : Window
                 IsRaised = false;
             ApplyLayer();
         };
-        layerTimer.Start();
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible)
+            {
+                CloseTools();
+                layerTimer.Stop();
+                StopMotion();
+            }
+            else if (hasRendered) { EnsureOnScreen(); ApplyLayer(); RevealPaper(); }
+        };
         Closing += (_, _) =>
         {
             CloseTools();
@@ -91,7 +99,22 @@ public partial class StickyWindow : Window
             { desk.MoveStack(NoteId, e.Key == Key.PageDown ? 1 : -1); e.Handled = true; }
         };
     }
-    private void ApplyStyle(Placement p) { Paper.Fill = PaperPalette.Brush(p.Color); ColorDot.Fill = PaperPalette.Brush(p.Color); BodyBox.FontFamily = new FontFamily(p.Font); BodyBox.FontSize = Math.Clamp(p.FontSize, 12, 32); BodyBox.QueueWebSync(); Opacity = Math.Clamp(p.Opacity, .94, 1); PinButton.Background = p.Topmost ? new SolidColorBrush(Color.FromArgb(40,80,65,28)) : Brushes.Transparent; PinButton.ToolTip = p.Topmost ? L.T("Открепить от переднего плана") : L.T("Закрепить поверх окон"); }
+    private void ApplyStyle(Placement p)
+    {
+        Paper.ApplyAppearance(p);
+        DragOutline.CornerRadius = DropOutline.CornerRadius = new CornerRadius(p.Corners == "square" ? 1 : 10);
+        if (shadowStyle != p.Shadow)
+        {
+            shadowStyle = p.Shadow;
+            shadowDepth = Paper.ApplyShadow(PaperShadow, p.Shadow);
+        }
+        ColorDot.Fill = Paper.Fill;
+        BodyBox.FontFamily = new FontFamily(p.Font);
+        BodyBox.FontSize = Math.Clamp(p.FontSize, 12, 32);
+        BodyBox.QueueWebSync();
+        PinButton.Background = p.Topmost ? new SolidColorBrush(Color.FromArgb(40, 80, 65, 28)) : Brushes.Transparent;
+        PinButton.ToolTip = p.Topmost ? L.T("Открепить от переднего плана") : L.T("Закрепить поверх окон");
+    }
     public void RefreshContent(IReadOnlyList<Note>? notes = null) => DisplayNote(NoteId, notes);
 
     private bool DisplayNote(Guid id, IReadOnlyList<Note>? notes = null)
@@ -192,6 +215,8 @@ public partial class StickyWindow : Window
         Topmost = (dragging && !useDesktopLayer) || IsRaised || (placement.Topmost && !DesktopLayer.FullScreenOtherApp());
         DragHandle.ToolTip = !attached ? L.T("Слой рабочего стола недоступен") :
             StackId.HasValue ? L.T("Переместить стопку") : L.T("Переместить листик");
+        if (IsVisible && (useDesktopLayer || placement.Topmost || IsRaised)) layerTimer.Start();
+        else layerTimer.Stop();
     }
 
     public void RaiseForWork()
@@ -231,7 +256,7 @@ public partial class StickyWindow : Window
         PaperTilt.BeginAnimation(RotateTransform.AngleProperty, Settle(-2.4, 0, duration));
         PaperScale.BeginAnimation(ScaleTransform.ScaleXProperty, Settle(.94, 1, duration));
         PaperScale.BeginAnimation(ScaleTransform.ScaleYProperty, Settle(.89, 1, duration));
-        PaperShadow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty, Settle(15, 7, duration));
+        AnimateShadow(8, duration);
         ResizeCorner.BeginAnimation(OpacityProperty, Settle(0, 1, duration));
     }
 
@@ -245,6 +270,8 @@ public partial class StickyWindow : Window
         BodyBox.EndEdit();
         Flush();
         if (!desk.Settings.DesktopLayer) Topmost = true;
+        DragOutline.BorderBrush = DragCue;
+        DragOutline.Visibility = Visibility.Visible;
         if (MotionEnabled)
         {
             ResetPaperMotion();
@@ -258,6 +285,7 @@ public partial class StickyWindow : Window
     {
         dragResponse.Follow(velocity);
         desk.PreviewSheetDrop(this, pointer);
+        DragOutline.BorderBrush = desk.SnapSheet(this) ? SnapCue : DragCue;
     }
 
     internal void DragFinished(Point? pointer, Rect origin)
@@ -267,6 +295,7 @@ public partial class StickyWindow : Window
         finally
         {
             dragging = false;
+            DragOutline.Visibility = Visibility.Collapsed;
             if (IsVisible)
             {
                 ApplyLayer();
@@ -287,6 +316,16 @@ public partial class StickyWindow : Window
         return new Rect(Paper.PointToScreen(new Point()), Paper.PointToScreen(new Point(Paper.ActualWidth, Paper.ActualHeight)));
     }
 
+    internal Rect SheetFrameBounds()
+    {
+        if (PresentationSource.FromVisual(this) is not HwndSource source || !Native.GetWindowRect(source.Handle, out var bounds))
+            return Rect.Empty;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        return new Rect(
+            new Point(bounds.Left + Paper.Margin.Left * dpi.DpiScaleX, bounds.Top + Paper.Margin.Top * dpi.DpiScaleY),
+            new Point(bounds.Right - Paper.Margin.Right * dpi.DpiScaleX, bounds.Bottom - Paper.Margin.Bottom * dpi.DpiScaleY));
+    }
+
     internal void HighlightDrop(bool highlight) => DropOutline.Visibility = highlight ? Visibility.Visible : Visibility.Collapsed;
 
     internal void PlaceBehind(StickyWindow source)
@@ -299,17 +338,17 @@ public partial class StickyWindow : Window
     private void PaintPull(Vector pull, double grip)
     {
         var strength = pull.Length;
-        var paperPull = peeling ? new Vector(pull.X, Math.Min(pull.Y, -.65 * grip)) : pull;
+        var paperPull = peeling ? new Vector(pull.X, Math.Min(pull.Y, -.77 * grip)) : pull;
         Paper.DragPull = paperPull;
         PaperSlide.X = PaperSlide.Y = 0;
         PaperScale.ScaleX = 1 - .055 * Math.Abs(pull.X) - .020 * strength;
-        PaperScale.ScaleY = 1 - .075 * Math.Abs(pull.Y) - .023 * strength - .014 * grip;
+        PaperScale.ScaleY = 1 - .075 * Math.Abs(pull.Y) - .023 * strength - (peeling ? .028 : .014) * grip;
         PaperTilt.Angle = SwingAngle(pull.X, Paper.ActualWidth, Paper.ActualHeight, Paper.Margin, PaperScale.ScaleX, PaperScale.ScaleY);
         rearPull1 = pull == default && grip == 0 ? default : rearPull1 + (pull - rearPull1) * .45;
         rearPull2 = pull == default && grip == 0 ? default : rearPull2 + (rearPull1 - rearPull2) * .35;
         PaintRear(StackBack1, BackScale1, BackTilt1, rearPull1, .83);
         PaintRear(StackBack2, BackScale2, BackTilt2, rearPull2, .67);
-        PaperShadow.ShadowDepth = 7 + Math.Round(5 * strength + 3 * grip);
+        if (shadowDepth > 0) PaperShadow.ShadowDepth = shadowDepth + Math.Round(5 * strength + 3 * grip);
         var gripInset = -12 * PaperSurface.BottomRightDragLift(paperPull);
         GripSlide.X = GripSlide.Y = gripInset;
     }
@@ -373,6 +412,12 @@ public partial class StickyWindow : Window
         PaintPull(default, 0);
     }
 
+    internal void StopMotion()
+    {
+        ResetPaperMotion();
+        Crumple.FinishNow();
+    }
+
     private void AnimateCurl(double from, double to, int duration)
     {
         Paper.BeginAnimation(PaperSurface.CurlLiftProperty, Settle(from, to, duration));
@@ -380,6 +425,13 @@ public partial class StickyWindow : Window
         var inset = Settle(-12 * from, -12 * to, duration);
         GripSlide.BeginAnimation(TranslateTransform.XProperty, inset);
         GripSlide.BeginAnimation(TranslateTransform.YProperty, inset);
+    }
+
+    private void AnimateShadow(double extraDepth, int duration)
+    {
+        if (shadowDepth > 0)
+            PaperShadow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty,
+                Settle(shadowDepth + extraDepth, shadowDepth, duration));
     }
 
     public bool IsCrumpling => Crumple.IsPlaying;
@@ -397,7 +449,7 @@ public partial class StickyWindow : Window
         {
             // A short settle over the stationary stack, without the opening curl or a fade.
             PaperSlide.BeginAnimation(TranslateTransform.XProperty, Settle(Math.Sign(direction) * 5, 0, 145));
-            PaperShadow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty, Settle(10, 7, 145));
+            AnimateShadow(3, 145);
         }
         return switched;
     }
@@ -436,7 +488,7 @@ public partial class StickyWindow : Window
     private void PinClick(object sender, RoutedEventArgs e) { var p = desk.Store.GetPlacement(NoteId); var next = p with { Topmost = !p.Topmost }; desk.Store.SavePlacement(next); ApplyStyle(next); ApplyLayer(); }
     private void ColorClick(object sender, RoutedEventArgs e)
     {
-        OpenTools((FrameworkElement)sender,true);
+        ShowTools(StickyTools.CreateAppearance(desk, NoteId, (FrameworkElement)sender, this, PlacementMode.Right, ApplyStyle, SetNoteSize));
     }
     private void NewClick(object sender, RoutedEventArgs e) => desk.NewNote();
     private void MinimizeStackClick(object sender, RoutedEventArgs e) { if (StackId is Guid group) desk.MinimizeStack(group); }
@@ -453,12 +505,10 @@ public partial class StickyWindow : Window
     private void TrashClick(object sender, RoutedEventArgs e) => desk.ChangeState(NoteId, "trash");
     private void MenuClick(object sender, RoutedEventArgs e)
     {
-        OpenTools((FrameworkElement)sender,false);
+        ShowTools(StickyTools.CreateActions(desk, NoteId, (FrameworkElement)sender, ApplyStyle));
     }
     private void ResizeCornerDrag(object sender,System.Windows.Controls.Primitives.DragDeltaEventArgs e){Width=Math.Clamp(Width+e.HorizontalChange,MinWidth,1600);Height=Math.Clamp(Height+e.VerticalChange,MinHeight,1400);}
     private void SetNoteSize(Size size){Width=Math.Clamp(size.Width,MinWidth,1600);Height=Math.Clamp(size.Height,MinHeight,1400);SavePosition();}
-    private void OpenTools(FrameworkElement target, bool colorsOnly) =>
-        ShowTools(StickyTools.Create(desk, NoteId, target, ApplyStyle, colorsOnly, SetNoteSize));
 
     private void ShowTools(Popup popup)
     {

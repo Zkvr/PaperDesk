@@ -393,6 +393,10 @@ public sealed class NoteStore : INoteStore, IDisposable
         {
             Color = validColor ? color! : defaults.Color,
             Font = p.Font is "Segoe UI" or "Georgia" or "Consolas" ? p.Font : defaults.Font,
+            Texture = p.Texture is "fibres" or "smooth" or "linen" ? p.Texture : defaults.Texture,
+            Corners = p.Corners is "folded" or "round" or "square" ? p.Corners : defaults.Corners,
+            Shadow = p.Shadow is "none" or "soft" or "deep" ? p.Shadow : defaults.Shadow,
+            Opacity = double.IsFinite(p.Opacity) ? Math.Clamp(p.Opacity, Placement.MinimumOpacity, 1) : defaults.Opacity,
             X = double.IsFinite(p.X) && Math.Abs(p.X) < 1_000_000 ? p.X : defaults.X,
             Y = double.IsFinite(p.Y) && Math.Abs(p.Y) < 1_000_000 ? p.Y : defaults.Y,
             Width = double.IsFinite(p.Width) ? Math.Clamp(p.Width, 200, 1600) : defaults.Width,

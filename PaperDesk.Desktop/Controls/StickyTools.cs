@@ -5,22 +5,98 @@ namespace PaperDesk.Desktop.Controls;
 
 public static class StickyTools
 {
-    public static Popup Create(DeskController desk,Guid id,FrameworkElement target,Action<Placement> apply,bool paletteOnly,Action<Size> resize)
+    public static Popup CreateAppearance(DeskController desk, Guid id, FrameworkElement button, FrameworkElement anchor,
+        PlacementMode side, Action<Placement> apply, Action<Size>? resize = null)
+    {
+        var store = desk.Store;
+        var current = store.GetPlacement(id);
+        var panel = new StackPanel { Width = 252, Margin = new Thickness(14) };
+        var popup = CreatePopup(desk, anchor, new ScrollViewer
+        {
+            MaxHeight = 440, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = panel
+        }, side);
+        panel.Children.Add(new TextBlock { Text = L.T("Оформление листика"), FontSize = 17, FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(Caption("Цвет бумаги", 10));
+        var colors = new PaperColorPicker { SelectedColor = current.Color, HorizontalAlignment = HorizontalAlignment.Left };
+        colors.ColorSelected += color => Save(p => p with { Color = color });
+        panel.Children.Add(colors);
+
+        var options = new Grid { Margin = new Thickness(0, 11, 0, 0) };
+        options.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        options.ColumnDefinitions.Add(new ColumnDefinition());
+        panel.Children.Add(options);
+        Choice("Фактура", current.Texture, [("fibres", "Волокна"), ("smooth", "Гладкая"), ("linen", "Лён")],
+            value => Save(p => p with { Texture = value }));
+        Choice("Углы", current.Corners, [("folded", "Загнутый уголок"), ("round", "Скруглённые"), ("square", "Прямые")],
+            value => Save(p => p with { Corners = value }));
+        Choice("Тень", current.Shadow, [("none", "Без тени"), ("soft", "Мягкая"), ("deep", "Глубокая")],
+            value => Save(p => p with { Shadow = value }));
+        var transparency = (int)Math.Round((1 - current.Opacity) * 100);
+        var maxTransparency = (int)Math.Round((1 - Placement.MinimumOpacity) * 100);
+        var percentages = new[] { 0, 4, 8, 12, maxTransparency, transparency }.Distinct().Order()
+            .Select(percent => (percent, $"{percent}%")).ToArray();
+        Choice("Прозрачность", transparency, percentages, value => Save(p => p with { Opacity = 1 - value / 100d }));
+
+        if (resize != null)
+        {
+            panel.Children.Add(Caption("Размер листика", 11));
+            var sizes = new NoteSizePicker();
+            sizes.SizeSelected += resize;
+            panel.Children.Add(sizes);
+        }
+
+        popup.Opened += (_, _) => colors.Children.OfType<Button>().FirstOrDefault(swatch =>
+            string.Equals((string)swatch.Tag, PaperPalette.Normalize(current.Color), StringComparison.OrdinalIgnoreCase))?.Focus();
+        panel.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Escape || options.Children.OfType<ComboBox>().Any(box => box.IsDropDownOpen)) return;
+            popup.IsOpen = false;
+            button.Focus();
+            e.Handled = true;
+        };
+        return popup;
+
+        void Save(Func<Placement, Placement> edit)
+        {
+            if (!ReferenceEquals(store, desk.Store) || store.Find(id) is not { Note.DeletedAt: null }) { popup.IsOpen = false; return; }
+            var value = edit(store.GetPlacement(id));
+            store.SavePlacement(value);
+            apply(value);
+        }
+
+        TextBlock Caption(string label, double top)
+        {
+            var caption = new TextBlock { Text = L.T(label), Margin = new Thickness(0, top, 0, 4), VerticalAlignment = VerticalAlignment.Center };
+            caption.SetResourceReference(TextBlock.ForegroundProperty, "MutedInk");
+            return caption;
+        }
+
+        void Choice<T>(string label, T value, (T Value, string Label)[] entries, Action<T> select) where T : notnull
+        {
+            var row = options.RowDefinitions.Count;
+            options.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var caption = Caption(label, 0);
+            Grid.SetRow(caption, row);
+            options.Children.Add(caption);
+            var combo = new ComboBox { Margin = new Thickness(0, 2, 0, 2), FontSize = 12 };
+            foreach (var entry in entries) combo.Items.Add(new ComboBoxItem { Content = L.T(entry.Label), Tag = entry.Value });
+            combo.SelectedIndex = Array.FindIndex(entries, entry => EqualityComparer<T>.Default.Equals(entry.Value, value));
+            System.Windows.Automation.AutomationProperties.SetLabeledBy(combo, caption);
+            combo.SelectionChanged += (_, _) =>
+            {
+                if (combo.SelectedItem is ComboBoxItem { Tag: T selected }) select(selected);
+            };
+            Grid.SetRow(combo, row);
+            Grid.SetColumn(combo, 1);
+            options.Children.Add(combo);
+        }
+    }
+
+    public static Popup CreateActions(DeskController desk, Guid id, FrameworkElement target, Action<Placement> apply)
     {
         var panel = new StackPanel { Margin = new Thickness(13), Width = 208 };
         var popup = CreatePopup(desk, target, panel, PlacementMode.Bottom);
-        void Save(Placement value){desk.Store.SavePlacement(value);apply(value);}
-        var heading=new DockPanel{Margin=new Thickness(3,0,0,9)};
-        if(!paletteOnly)
-        {
-            var favorite=new Button{Content=desk.Store.GetPlacement(id).Favorite?"★":"☆",FontSize=20,Padding=new Thickness(6,0,6,1),Margin=new Thickness(0),Foreground=(Brush)Application.Current.FindResource("Accent"),ToolTip=L.T("Избранное")};DockPanel.SetDock(favorite,Dock.Right);heading.Children.Add(favorite);
-            favorite.Click+=(_,_)=>{var p=desk.Store.GetPlacement(id);Save(p with{Favorite=!p.Favorite});favorite.Content=!p.Favorite?"★":"☆";};
-        }
-        heading.Children.Add(new TextBlock{Text=L.T("Цвет бумаги"),FontSize=11,Foreground=(Brush)Application.Current.FindResource("MutedInk"),VerticalAlignment=VerticalAlignment.Center});panel.Children.Add(heading);
-        var colors=new PaperColorPicker{SelectedColor=desk.Store.GetPlacement(id).Color};colors.ColorSelected+=color=>{Save(desk.Store.GetPlacement(id) with{Color=color});if(paletteOnly)popup.IsOpen=false;};panel.Children.Add(colors);
-        if(paletteOnly)return popup;
-        panel.Children.Add(new TextBlock{Text=L.T("Размер листика"),FontSize=11,Foreground=(Brush)Application.Current.FindResource("MutedInk"),Margin=new Thickness(3,13,0,5)});
-        var sizes=new NoteSizePicker();sizes.SizeSelected+=resize;panel.Children.Add(sizes);
+        void Save(Placement value) { desk.Store.SavePlacement(value); apply(value); }
         panel.Children.Add(new TextBlock{Text=L.T("Размер текста"),FontSize=11,Foreground=(Brush)Application.Current.FindResource("MutedInk"),Margin=new Thickness(3,13,0,5)});
         var textPanel=new StackPanel{Margin=new Thickness(2,9,2,7)};
         var font=new ComboBox{ItemsSource=new[]{"Segoe UI","Georgia","Consolas"},SelectedItem=desk.Store.GetPlacement(id).Font,FontSize=12,Margin=new Thickness(0,0,0,9)};font.SelectionChanged+=(_,_)=>{if(font.SelectedItem is string name)Save(desk.Store.GetPlacement(id) with{Font=name});};textPanel.Children.Add(font);
@@ -32,6 +108,7 @@ public static class StickyTools
         {
             var row=new Grid{Width=180};row.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(25)});row.ColumnDefinitions.Add(new ColumnDefinition());row.Children.Add(new TextBlock{Text=glyph,FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=13,VerticalAlignment=VerticalAlignment.Center,Foreground=danger?new SolidColorBrush(Color.FromRgb(225,167,167)):(Brush)Application.Current.FindResource("MutedInk")});var caption=new TextBlock{Text=label,FontSize=12,VerticalAlignment=VerticalAlignment.Center,Foreground=danger?new SolidColorBrush(Color.FromRgb(225,167,167)):(Brush)Application.Current.FindResource("Ink")};Grid.SetColumn(caption,1);row.Children.Add(caption);var b=new Button{Content=row,Padding=new Thickness(10,9,10,9),Margin=new Thickness(0,1,0,1)};b.Click+=(_,_)=>{popup.IsOpen=false;action();};System.Windows.Automation.AutomationProperties.SetName(b,label);panel.Children.Add(b);return b;
         }
+        Action("\uE734", L.T("Избранное"), () => { var p = desk.Store.GetPlacement(id); Save(p with { Favorite = !p.Favorite }); });
         Action("\uE80A",L.T("Открыть менеджер"),desk.ShowManager);
         if (desk.Settings.StackedNotes)
         {
@@ -141,16 +218,17 @@ public static class StickyTools
     {
         var frame = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(250, 37, 42, 50)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(35, 255, 255, 255)), BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12), Child = content, Margin = new Thickness(8),
             Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 15, ShadowDepth = 4, Opacity = .3 }
         };
+        frame.SetResourceReference(Border.BackgroundProperty, "DeskPopup");
+        frame.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "Ink");
         return new Popup
         {
             PlacementTarget = target, Placement = placement, StaysOpen = false, AllowsTransparency = true,
             PopupAnimation = desk.Settings.Animations && SystemParameters.ClientAreaAnimation ? PopupAnimation.Fade : PopupAnimation.None,
-            VerticalOffset = placement == PlacementMode.Top ? -3 : 7, Child = frame
+            VerticalOffset = placement switch { PlacementMode.Top => -3, PlacementMode.Bottom => 7, _ => 0 }, Child = frame
         };
     }
 }

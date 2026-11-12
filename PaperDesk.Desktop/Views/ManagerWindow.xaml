@@ -26,7 +26,7 @@
     </Style>
     <GroupStyle x:Key="DeskGroupStyle" Panel="{StaticResource ListPanel}" ContainerStyle="{StaticResource DeskGroup}"/>
   </Window.Resources>
-  <Border x:Name="RootFrame" Background="#CE1B1E24" BorderBrush="#22FFFFFF" BorderThickness="1" CornerRadius="14">
+  <Border x:Name="RootFrame" Background="{DynamicResource DeskFrame}" BorderBrush="#22FFFFFF" BorderThickness="1" CornerRadius="14">
     <Grid x:Name="Workspace" TextElement.Foreground="{StaticResource Ink}">
       <Grid.RowDefinitions><RowDefinition Height="54"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <Grid>
@@ -43,7 +43,7 @@
       </Grid>
       <Grid Grid.Row="1">
         <Grid.ColumnDefinitions><ColumnDefinition Width="188"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="EditorColumn" Width="0"/></Grid.ColumnDefinitions>
-        <Border Background="#302F343D" CornerRadius="10" Margin="12,0,0,12">
+        <Border Background="{DynamicResource DeskPanel}" CornerRadius="10" Margin="12,0,0,12">
           <DockPanel LastChildFill="False" Margin="10,16,10,14">
             <StackPanel DockPanel.Dock="Top">
               <RadioButton x:Name="AllNotesSection" Style="{StaticResource NavItem}" GroupName="Sections" IsChecked="True" Tag="all" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Все заметки'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="&#xE80A;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Text="{paper:T Text='Все заметки'}"/><TextBlock Grid.Column="2" Text="{Binding AllCount}" Opacity="0.7" FontSize="11"/></Grid></RadioButton>
@@ -71,11 +71,11 @@
           </DockPanel>
           <Grid Grid.Row="1" Height="45" Margin="0,15,0,13">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="136"/><ColumnDefinition Width="74"/></Grid.ColumnDefinitions>
-            <Border Background="#462F343D" BorderBrush="#12FFFFFF" BorderThickness="1" CornerRadius="9" Margin="0,0,12,0">
+            <Border Background="{DynamicResource DeskField}" BorderBrush="#12FFFFFF" BorderThickness="1" CornerRadius="9" Margin="0,0,12,0">
               <Grid><TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource MutedInk}" VerticalAlignment="Center" Margin="14,0,0,0"/><TextBox x:Name="SearchBox" TextChanged="SearchChanged" PreviewKeyDown="SearchKeyDown" Background="Transparent" BorderThickness="0" Padding="0,10,12,10" Margin="39,0,0,0" ToolTip="{paper:T Text='Поиск по названию, тексту и #тегам'}" AutomationProperties.Name="{paper:T Text='Поиск заметок'}"/><TextBlock Text="{paper:T Text='Поиск по заметкам…'}" Foreground="{StaticResource MutedInk}" Margin="39,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text,ElementName=SearchBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
             </Border>
             <ComboBox x:Name="SortBox" Grid.Column="1" SelectedIndex="0" SelectionChanged="SortChanged" FontSize="11" Margin="0,0,10,0" AutomationProperties.Name="{paper:T Text='Сортировка заметок'}"><ComboBoxItem Content="{paper:T Text='По изменению'}"/><ComboBoxItem Content="{paper:T Text='По названию'}"/><ComboBoxItem Content="{paper:T Text='По созданию'}"/></ComboBox>
-            <Border Grid.Column="2" Background="#352F343D" CornerRadius="8"><StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center"><Button x:Name="GridViewButton" Content="&#xE80A;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource Accent}" Padding="9,7" Margin="0" Click="GridViewClick" ToolTip="{paper:T Text='Сетка'}" AutomationProperties.Name="{paper:T Text='Показать сеткой'}"/><Button x:Name="ListViewButton" Content="&#xE8FD;" FontFamily="Segoe MDL2 Assets" Padding="9,7" Margin="0" Click="ListViewClick" ToolTip="{paper:T Text='Список'}" AutomationProperties.Name="{paper:T Text='Показать списком'}"/></StackPanel></Border>
+            <Border Grid.Column="2" Background="{DynamicResource DeskPanel}" CornerRadius="8"><StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center"><Button x:Name="GridViewButton" Content="&#xE80A;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource Accent}" Padding="9,7" Margin="0" Click="GridViewClick" ToolTip="{paper:T Text='Сетка'}" AutomationProperties.Name="{paper:T Text='Показать сеткой'}"/><Button x:Name="ListViewButton" Content="&#xE8FD;" FontFamily="Segoe MDL2 Assets" Padding="9,7" Margin="0" Click="ListViewClick" ToolTip="{paper:T Text='Список'}" AutomationProperties.Name="{paper:T Text='Показать списком'}"/></StackPanel></Border>
           </Grid>
           <Border x:Name="WelcomePanel" Grid.Row="2" Visibility="Collapsed" Background="#182FC5AF" BorderBrush="#354FC4AA" BorderThickness="1" CornerRadius="9" Padding="12" Margin="0,0,0,13">
             <StackPanel>
@@ -90,10 +90,10 @@
           <Grid Grid.Row="3">
             <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="12,0,12,0"><TextBlock x:Name="EmptyTitle" FontSize="21" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,9"/><TextBlock x:Name="EmptyHint" TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" FontSize="13"/></StackPanel>
             <ListBox x:Name="Cards" Tag="grid" SelectionMode="Extended" ItemsSource="{Binding Notes}" ItemsPanel="{StaticResource GridPanel}" Background="Transparent" Foreground="{StaticResource Ink}" BorderThickness="0" SelectionChanged="CardSelected" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel" HorizontalContentAlignment="Stretch" Padding="0">
-              <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,12,16"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Selection" BorderBrush="Transparent" BorderThickness="2" CornerRadius="13" Padding="5"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="#35E8C88C"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="#B5E8C88C"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="{StaticResource Accent}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style></ListBox.ItemContainerStyle>
+              <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,12,16"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Selection" BorderBrush="Transparent" BorderThickness="2" CornerRadius="13" Padding="5"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="{DynamicResource AccentHover}"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="{DynamicResource AccentOutline}"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Selection" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style></ListBox.ItemContainerStyle>
               <ListBox.ItemTemplate><DataTemplate>
                 <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                  <paper:PaperSurface Fill="{Binding Color}"><paper:PaperSurface.Style><Style TargetType="paper:PaperSurface"><Setter Property="Height" Value="145"/><Style.Triggers><DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="list"><Setter Property="Height" Value="87"/></DataTrigger></Style.Triggers></Style></paper:PaperSurface.Style><paper:PaperSurface.Effect><DropShadowEffect Color="Black" BlurRadius="11" ShadowDepth="4" Opacity="0.24"/></paper:PaperSurface.Effect>
+                  <paper:PaperSurface Fill="{Binding Color}" Texture="{Binding Texture}" Corners="{Binding Corners}"><paper:PaperSurface.Style><Style TargetType="paper:PaperSurface"><Setter Property="Height" Value="145"/><Style.Triggers><DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="list"><Setter Property="Height" Value="87"/></DataTrigger></Style.Triggers></Style></paper:PaperSurface.Style><paper:PaperSurface.Effect><DropShadowEffect Color="Black" BlurRadius="11" ShadowDepth="4" Opacity="0.24"/></paper:PaperSurface.Effect>
                     <Grid Margin="15,12,15,18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="{Binding Title}" FontFamily="Segoe Print" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource PaperInk}" TextTrimming="CharacterEllipsis" Margin="0,0,16,7"/><TextBlock Text="★" FontSize="13" Foreground="#645A46" HorizontalAlignment="Right" Margin="0,2,0,0" Visibility="{Binding Favorite,Converter={StaticResource BoolVisibility}}"/><TextBlock Grid.Row="1" Text="{Binding Preview}" Foreground="#514B40" FontSize="13" LineHeight="19" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Top"/></Grid>
                   </paper:PaperSurface>
                   <StackPanel Grid.Row="1" Margin="5,9,5,0">
@@ -101,12 +101,12 @@
                       <TextBlock DockPanel.Dock="Right" Text="{Binding State}" FontSize="10" Foreground="{StaticResource MutedInk}"/>
                       <TextBlock Text="{Binding Date}" FontSize="10" Foreground="{StaticResource MutedInk}"/>
                     </DockPanel>
-                    <Border HorizontalAlignment="Left" CornerRadius="4" Background="#16E8C88C" Padding="6,2" Margin="0,6,0,0"
+                    <Border HorizontalAlignment="Left" CornerRadius="4" Background="{DynamicResource AccentTint}" Padding="6,2" Margin="0,6,0,0"
                             Visibility="{Binding HasStack, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding StackName}">
                       <DockPanel>
-                        <Path DockPanel.Dock="Left" Data="M1,1 L9,1 L9,6 L1,6 Z M3,8 L11,8 L11,3" Stroke="{StaticResource Accent}"
+                        <Path DockPanel.Dock="Left" Data="M1,1 L9,1 L9,6 L1,6 Z M3,8 L11,8 L11,3" Stroke="{DynamicResource Accent}"
                               StrokeThickness="1" StrokeLineJoin="Round" Margin="0,0,5,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding StackName}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Accent}"/>
+                        <TextBlock Text="{Binding StackName}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Accent}"/>
                       </DockPanel>
                     </Border>
                   </StackPanel>
@@ -134,12 +134,13 @@
           </DockPanel>
           </StackPanel>
         </Grid>
-        <Border Grid.Column="2" Background="#352F343D" CornerRadius="10" Margin="0,0,12,12">
+        <Border Grid.Column="2" Background="{DynamicResource DeskPanel}" CornerRadius="10" Margin="0,0,12,12">
           <Grid Margin="16,12,16,15">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <DockPanel Margin="1,0,0,9">
               <Button Content="×" DockPanel.Dock="Right" Click="CollapsePreviewClick" ToolTip="{paper:T Text='Закрыть предпросмотр'}" Padding="8,1" FontSize="20"/>
               <Button x:Name="FavoriteButton" Content="☆" DockPanel.Dock="Right" Click="FavoriteClick" ToolTip="{paper:T Text='Избранное'}" AutomationProperties.Name="{paper:T Text='Избранное'}" Padding="8,1" FontSize="18"/>
+              <Button x:Name="AppearanceButton" DockPanel.Dock="Right" Click="AppearanceClick" Padding="8,4" ToolTip="{paper:T Text='Оформление листика'}" AutomationProperties.Name="{paper:T Text='Оформление листика'}"><Ellipse x:Name="EditorColorDot" Width="14" Height="14" Stroke="#60FFFFFF" StrokeThickness="1"/></Button>
               <Button x:Name="FormatButton" DockPanel.Dock="Right" Content="{StaticResource FormatGlyph}" Click="FormatClick" Padding="8,4" ToolTip="{paper:T Text='Формат текста'}" AutomationProperties.Name="{paper:T Text='Формат текста'}"/>
               <Button x:Name="AddImagesButton" DockPanel.Dock="Right" Click="AddImagesClick" Content="&#xEB9F;" FontFamily="Segoe MDL2 Assets" FontSize="16" Padding="8,4" ToolTip="{paper:T Text='Добавить изображения · Ctrl+V или перетащите файл'}" AutomationProperties.Name="{paper:T Text='Добавить изображения'}"/>
               <TextBlock x:Name="PreviewState" Foreground="{StaticResource MutedInk}" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>

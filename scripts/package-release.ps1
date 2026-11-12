@@ -1,15 +1,19 @@
 param(
     [string]$Compiler,
     [switch]$PortableOnly,
-    [string]$Output = "artifacts\release",
-    [string]$Version
+    [string]$Output = 'artifacts\release',
+    [string]$ExpectedTag
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $root 'PaperDesk.Desktop\PaperDesk.Desktop.csproj'
-if (!$Version) {
-    $Version = ([xml](Get-Content -LiteralPath $project -Raw)).Project.PropertyGroup.Version
+$version = ([xml](Get-Content -LiteralPath $project -Raw)).Project.PropertyGroup.Version
+if ($version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
+    throw 'Expected a Windows package version in the desktop project, for example 0.7.0-rc.'
 }
+$tag = "v$version"
+if ($ExpectedTag -and $ExpectedTag -cne $tag) { throw "Tag $ExpectedTag does not match $tag in the desktop project." }
+$numericVersion = ($version -split '-', 2)[0] + '.0'
 if (!$PortableOnly) {
     if (!$Compiler) { throw 'Specify the Inno Setup compiler or use -PortableOnly.' }
     $Compiler = (Resolve-Path -LiteralPath $Compiler).Path
@@ -20,20 +24,25 @@ $artifactDirectory = New-Item -ItemType Directory -Path $artifacts -Force
 if ($artifactDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Unexpected artifacts path.' }
 $build = (New-Item -ItemType Directory -Path (Join-Path $artifacts ('stage-' + [Guid]::NewGuid().ToString('N')))).FullName
 $stage = Join-Path $build 'publish'
+$productsDir = Join-Path $build 'packages'
 $sdk = Join-Path $root '.tools\dotnet\dotnet.exe'
 if (Test-Path -LiteralPath $sdk) { . "$PSScriptRoot\env.ps1" }
 else { $sdk = 'dotnet' }
 
 try {
-    New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
+    New-Item -ItemType Directory -Path $productsDir | Out-Null
     $publishArgs = @($project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
         '--artifacts-path', (Join-Path $build 'msbuild'), '-o', $stage, '-m:1',
-        '-p:UseSharedCompilation=false', "-p:Version=$Version", '-p:PaperDeskLocalOnly=true', '-p:DebugType=None', "-p:PathMap=$root=/_/")
+        '-p:UseSharedCompilation=false', '-p:PaperDeskLocalOnly=true', '-p:DebugType=None',
+        '-p:IncludeSourceRevisionInInformationalVersion=false', "-p:PathMap=$root=/_/")
     & $sdk publish @publishArgs
     if ($LASTEXITCODE) { throw "Windows publish failed ($LASTEXITCODE)" }
+    if ((Get-Item -LiteralPath "$stage\PaperDesk.exe").VersionInfo.ProductVersion -cne $version) {
+        throw "The published executable version does not match $version."
+    }
     Copy-Item -LiteralPath "$root\licenses" -Destination "$stage\licenses" -Recurse
 
-    $portable = Join-Path $outputPath 'PaperDesk-Portable-win-x64.zip'
+    $portable = Join-Path $productsDir 'PaperDesk-Portable-win-x64.zip'
     $products = @($portable)
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $files = [IO.Directory]::GetFiles($stage, '*', [IO.SearchOption]::AllDirectories)
@@ -57,16 +66,27 @@ try {
     } finally { $stream.Dispose() }
 
     if (!$PortableOnly) {
-        $installer = Join-Path $outputPath 'PaperDesk-Setup-win-x64.exe'
-        & $Compiler /Qp "/DBuildDir=$stage" "/DOutputPath=$outputPath" "/DAppVersion=$Version" "$root\installer\PaperDesk.iss"
+        $installer = Join-Path $productsDir 'PaperDesk-Setup-win-x64.exe'
+        & $Compiler /Qp "/DBuildDir=$stage" "/DOutputPath=$productsDir" "/DAppVersion=$version" "/DAppNumericVersion=$numericVersion" "$root\installer\PaperDesk.iss"
         if ($LASTEXITCODE -or !(Test-Path -LiteralPath $installer)) { throw "Installer build failed ($LASTEXITCODE)" }
+        if ((Get-Item -LiteralPath $installer).VersionInfo.ProductVersion.TrimEnd() -cne $version) {
+            throw "The installer version does not match $version."
+        }
         $products += $installer
     }
 
+    $checksums = Join-Path $productsDir 'SHA256SUMS.txt'
     Get-FileHash -LiteralPath $products -Algorithm SHA256 |
         ForEach-Object { "$($_.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($_.Path))" } |
-        Set-Content -LiteralPath (Join-Path $outputPath 'SHA256SUMS.txt') -Encoding ascii
-    Get-Item -LiteralPath $products
+        Set-Content -LiteralPath $checksums -Encoding ascii
+    $metadata = Join-Path $productsDir 'release.json'
+    [ordered]@{ version = $version; tag = $tag; prerelease = $version.Contains('-') } |
+        ConvertTo-Json | Set-Content -LiteralPath $metadata -Encoding utf8
+    New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
+    foreach ($product in ($products + $metadata + $checksums)) {
+        Move-Item -LiteralPath $product -Destination $outputPath -Force
+    }
+    Get-Item -LiteralPath @($products | ForEach-Object { Join-Path $outputPath ([IO.Path]::GetFileName($_)) })
 } finally {
     $resolved = Get-Item -LiteralPath $build -Force
     if ($resolved.Parent.FullName -ne $artifacts -or ($resolved.Attributes -band [IO.FileAttributes]::ReparsePoint)) {

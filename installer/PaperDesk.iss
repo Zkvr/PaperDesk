@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.5.0-beta"
+  #error "Use scripts/package-release.ps1 to set the package version."
 #endif
 #ifndef BuildDir
   #define BuildDir "..\artifacts\release-win-x64"
@@ -12,6 +12,9 @@
 AppId={{0D82E9EB-5585-4DB0-8981-F7E35C9921E3}
 AppName=PaperDesk
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppNumericVersion}
+VersionInfoProductTextVersion={#AppVersion}
+VersionInfoTextVersion={#AppVersion}
 AppPublisher=PaperDesk
 DefaultDirName={localappdata}\Programs\PaperDesk
 DefaultGroupName=PaperDesk
@@ -47,8 +50,8 @@ english.UpdateStartupFailed=PaperDesk could not update its automatic startup com
 russian.UpdateStartupFailed=PaperDesk не удалось обновить команду автозапуска.
 
 [Files]
-Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "PaperDesk.installed.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs notimestamp
+Source: "PaperDesk.installed.txt"; DestDir: "{app}"; Flags: ignoreversion notimestamp
 
 [Icons]
 Name: "{autoprograms}\PaperDesk"; Filename: "{app}\PaperDesk.exe"; WorkingDir: "{app}"; Tasks: startmenu

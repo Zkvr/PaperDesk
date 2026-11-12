@@ -8,6 +8,8 @@ public record Settings
     public Guid LastUserId { get; init; }
     public bool DesktopLayer { get; init; }
     public bool Animations { get; init; } = true;
+    public bool SnapNotes { get; init; }
+    public string Theme { get; init; } = "graphite";
     public string Hotkey { get; init; } = "Ctrl+Alt+N";
     public string SummonHotkey { get; init; } = "Ctrl+Alt+Space";
     public bool AutoStart { get; init; }

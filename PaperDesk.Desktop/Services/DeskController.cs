@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
@@ -26,7 +27,8 @@ public sealed class DeskController : IDisposable
     private ManagerWindow? manager;
     private SettingsWindow? settingsWindow;
     private readonly DispatcherTimer refresh;
-    private bool pendingRefresh, disposed;
+    private int refreshQueued;
+    private bool disposed;
     private IReadOnlyList<Note>? undo;
     private bool notesSuppressed;
     public bool CanUndo => undo != null;
@@ -34,9 +36,19 @@ public sealed class DeskController : IDisposable
     public DeskController(string root)
     {
         DataRoot = root; Directory.CreateDirectory(root);
+        refresh = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(180) };
+        refresh.Tick += (_, _) =>
+        {
+            refresh.Stop();
+            Interlocked.Exchange(ref refreshQueued, 0);
+            if (disposed) return;
+            ReconcileWindows();
+            Changed?.Invoke();
+        };
         var settingsPath = Path.Combine(root, "settings.json");
         var newProfile = !File.Exists(settingsPath) && !Directory.Exists(Path.Combine(root, "profiles"));
         Settings = File.Exists(settingsPath) ? Json.Read<Settings>(File.ReadAllText(settingsPath)) : new Settings();
+        ThemePalette.Apply(Settings.Theme);
         OpenStore(Guid.Empty);
         if (newProfile)
         {
@@ -59,11 +71,9 @@ public sealed class DeskController : IDisposable
         RegisterAtStartup(hotkey, Settings.Hotkey, L.T("Новый листик"));
         RegisterAtStartup(summonHotkey, Settings.SummonHotkey, L.T("Вызвать заметки"));
         UpdateSummonLabel();
-        refresh = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
-        refresh.Tick += (_, _) => { if (pendingRefresh) { pendingRefresh = false; ReconcileWindows(); Changed?.Invoke(); } };
-        refresh.Start();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
         Microsoft.Win32.SystemEvents.PowerModeChanged += PowerModeChanged;
+        SystemParameters.StaticPropertyChanged += SystemParametersChanged;
     }
     private void RegisterAtStartup(HotkeyHost host, string shortcut, string action)
     {
@@ -85,7 +95,19 @@ public sealed class DeskController : IDisposable
     }
     private void StoreChanged()
     {
-        pendingRefresh = true;
+        QueueRefresh();
+    }
+
+    private void QueueRefresh()
+    {
+        if (Interlocked.Exchange(ref refreshQueued, 1) != 0) return;
+        if (refresh.Dispatcher.CheckAccess()) Schedule();
+        else refresh.Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)Schedule);
+
+        void Schedule()
+        {
+            if (!disposed) refresh.Start();
+        }
     }
     public void UpdateSettings(Settings value)
     {
@@ -102,6 +124,7 @@ public sealed class DeskController : IDisposable
         if (Settings.StackedNotes != value.StackedNotes) { FlushWindows(); CloseStickies(); minimizedStacks.Clear(); }
         UpdateSummonLabel();
         Settings = value; SaveSettings();
+        ApplyMotionPreference();
         using var run = Microsoft.Win32.Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
         if (value.AutoStart) run.SetValue("PaperDesk", "\"" + Environment.ProcessPath + "\" --startup --data \"" + DataRoot + "\""); 
         else if (run.GetValue("PaperDesk") is string command && command.StartsWith("\"" + Environment.ProcessPath + "\" ", StringComparison.OrdinalIgnoreCase))
@@ -110,7 +133,17 @@ public sealed class DeskController : IDisposable
         ReconcileWindows();
         Changed?.Invoke();
     }
-    private void SaveSettings() { var p = Path.Combine(DataRoot, "settings.json"); File.WriteAllText(p + ".tmp", Json.Write(Settings)); File.Move(p + ".tmp", p, true); }
+    internal void SetTheme(string id)
+    {
+        var theme = ThemePalette.Find(id);
+        if (theme.Id == Settings.Theme) return;
+        var updated = Settings with { Theme = theme.Id };
+        SaveSettings(updated);
+        Settings = updated;
+        ThemePalette.Apply(theme.Id);
+    }
+
+    private void SaveSettings(Settings? value = null) { var p = Path.Combine(DataRoot, "settings.json"); File.WriteAllText(p + ".tmp", Json.Write(value ?? Settings)); File.Move(p + ".tmp", p, true); }
     internal void DismissWelcome()
     {
         if (!Settings.WelcomePending) return;
@@ -294,6 +327,20 @@ public sealed class DeskController : IDisposable
         dropTarget?.HighlightDrop(false);
         dropTarget = target;
         dropTarget?.HighlightDrop(true);
+    }
+
+    internal bool SnapSheet(StickyWindow source)
+    {
+        if (!Settings.SnapNotes || dropTarget != null || source.SheetFrameBounds() is not { IsEmpty: false } bounds ||
+            PresentationSource.FromVisual(source)?.CompositionTarget is not { } composition) return false;
+        var neighbours = stickies.Values.Where(window => window != source && window.IsVisible && !window.IsCrumpling)
+            .Select(window => window.SheetFrameBounds());
+        var dpi = VisualTreeHelper.GetDpi(source).DpiScaleX;
+        if (PaperDrag.SnapOffset(bounds, neighbours, 8 * dpi, 12 * dpi) is not Vector offset) return false;
+        var movement = composition.TransformFromDevice.Transform(offset);
+        if (movement.X != 0) source.Left += movement.X;
+        if (movement.Y != 0) source.Top += movement.Y;
+        return true;
     }
 
     private StickyWindow? FindDropTarget(StickyWindow source, Point pointer) =>
@@ -701,6 +748,20 @@ public sealed class DeskController : IDisposable
     {
         if (e.Mode == Microsoft.Win32.PowerModes.Resume) RestoreVisibleWindows();
     }
+
+    private void SystemParametersChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SystemParameters.ClientAreaAnimation))
+            refresh.Dispatcher.BeginInvoke((Action)ApplyMotionPreference);
+    }
+
+    private void ApplyMotionPreference()
+    {
+        if (disposed || (Settings.Animations && SystemParameters.ClientAreaAnimation)) return;
+        foreach (var window in stickies.Values.ToArray()) window.StopMotion();
+        revealedSheet?.StopMotion();
+        manager?.StopMotion();
+    }
     private void RestoreVisibleWindows()
     {
         Application.Current?.Dispatcher.BeginInvoke(() =>
@@ -718,6 +779,7 @@ public sealed class DeskController : IDisposable
         if (disposed) return; disposed = true; refresh.Stop(); FlushWindows(); CloseStickies(); tray.Visible = false; tray.Dispose(); hotkey.Dispose(); summonHotkey.Dispose();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
+        SystemParameters.StaticPropertyChanged -= SystemParametersChanged;
         Store.Dispose();
     }
 }

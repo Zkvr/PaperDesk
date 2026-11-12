@@ -7,7 +7,7 @@ using PaperDesk.Desktop.Controls;
 namespace PaperDesk.Desktop.ViewModels;
 
 public sealed record NoteCard(Guid Id, string Title, string Preview, string Date, string Color, string State,
-    bool Conflict, bool Favorite, bool OnDesktop, string StackName)
+    bool Conflict, bool Favorite, bool OnDesktop, string StackName, string Texture, string Corners)
 {
     public string Section => L.T(OnDesktop ? "На столе" : "Не на столе");
     public bool HasStack => StackName.Length != 0;
@@ -95,7 +95,7 @@ public sealed class ManagerViewModel : INotifyPropertyChanged
                 string.IsNullOrWhiteSpace(n.Body) ? L.T(pictures.Contains(n.Id) ? "Изображения" : "Пустой листик") : FormatPreview(n.Body),
                 n.UpdatedAt.ToLocalTime().ToString("dd MMM, HH:mm"), PaperPalette.Normalize(p.Color),
                 row.Conflict != null ? L.T("⚠ Конфликт") : rejected.Contains(n.Id) ? L.T("⚠ Правка отклонена") : "",
-                row.Conflict != null, p.Favorite, onDesktop, stackName);
+                row.Conflict != null, p.Favorite, onDesktop, stackName, p.Texture, p.Corners);
         }).ToList();
         notes.Update(cards);
         foreach (var prop in new[] { nameof(Account), nameof(Status), nameof(Count), nameof(AllCount), nameof(VisibleCount), nameof(OffDeskCount), nameof(FavoriteCount), nameof(ArchiveCount), nameof(TrashCount) }) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));

@@ -18,6 +18,8 @@ public partial class ManagerWindow : Window
     private bool loading;
     private bool selecting, purging;
     private string shownTitle = "", shownBody = "";
+    private Popup? appearance;
+    private readonly System.Windows.Media.Effects.DropShadowEffect editorShadow = new() { Color = Colors.Black };
     public ManagerWindow(DeskController controller)
     {
         desk = controller; vm = new(desk); InitializeComponent(); DataContext = vm;
@@ -27,10 +29,11 @@ public partial class ManagerWindow : Window
         EditorPictures.ConnectDrop(EditorPaper, EditBody);
         if (Application.Current is App) EditBody.EnableWebEditor(desk, CreateNote, FocusSearch);
         desk.Changed += Refresh;
-        Closed += (_, _) => { EditorCrumple.Cancel(); desk.Changed -= Refresh; };
+        Closed += (_, _) => { if (appearance != null) appearance.IsOpen = false; EditorCrumple.Cancel(); desk.Changed -= Refresh; };
         UpdateGrouping();
         Refresh();
         Loaded += (_, _) => WindowMaterial.Reveal(Workspace, desk.Settings.Animations);
+        IsVisibleChanged += (_, _) => { if (!IsVisible) StopMotion(); };
         StateChanged += (_, _) => RootFrame.CornerRadius = new CornerRadius(WindowState == WindowState.Maximized ? 0 : 14);
         SizeChanged += (_, _) => UpdateEditorWidth();
         PreviewKeyDown += ManagerKeyDown;
@@ -77,7 +80,10 @@ public partial class ManagerWindow : Window
         if (row != null)
         {
             var placement = desk.Store.GetPlacement(row.Note.Id);
-            EditorPaper.Fill = PaperPalette.Brush(placement.Color);
+            EditorPaper.ApplyAppearance(placement);
+            EditorPaper.ApplyShadow(editorShadow, placement.Shadow);
+            EditorColorDot.Fill = EditorPaper.Fill;
+            AppearanceButton.Visibility = row.Note.DeletedAt == null ? Visibility.Visible : Visibility.Collapsed;
             EditBody.FontFamily = new FontFamily(placement.Font);
             EditBody.FontSize = Math.Clamp(placement.FontSize, 12, 32);
             EditBody.QueueWebSync();
@@ -249,8 +255,8 @@ public partial class ManagerWindow : Window
     {
         Cards.Tag = list ? "list" : "grid";
         Cards.ItemsPanel = (ItemsPanelTemplate)Resources[list ? "ListPanel" : "GridPanel"];
-        GridViewButton.Foreground = (Brush)Application.Current.FindResource(list ? "MutedInk" : "Accent");
-        ListViewButton.Foreground = (Brush)Application.Current.FindResource(list ? "Accent" : "MutedInk");
+        GridViewButton.SetResourceReference(ForegroundProperty, list ? "MutedInk" : "Accent");
+        ListViewButton.SetResourceReference(ForegroundProperty, list ? "Accent" : "MutedInk");
     }
 
     private void UpdateGrouping()
@@ -352,6 +358,12 @@ public partial class ManagerWindow : Window
         EditorActions.IsEnabled = true;
         LoadEditor();
     }
+
+    internal void StopMotion()
+    {
+        Workspace.BeginAnimation(OpacityProperty, null);
+        EditorCrumple.FinishNow();
+    }
     private void RestoreClick(object sender, RoutedEventArgs e) { if (selected.HasValue) desk.ChangeState(selected.Value, "restore"); }
     private void FileMenuClick(object sender, RoutedEventArgs e)
     {
@@ -403,6 +415,16 @@ public partial class ManagerWindow : Window
         }
         actions.Add((L.T("В корзину"), TrashClick));
         OpenMenu(button, actions);
+    }
+
+    private void AppearanceClick(object sender, RoutedEventArgs e)
+    {
+        if (selected is not Guid id) return;
+        if (appearance != null) appearance.IsOpen = false;
+        var popup = StickyTools.CreateAppearance(desk, id, (Button)sender, EditorPaper, PlacementMode.Left, _ => LoadEditor());
+        appearance = popup;
+        popup.Closed += (_, _) => { if (appearance == popup) appearance = null; };
+        popup.IsOpen = true;
     }
     private void OpenTextSize(Button button, Guid id)
     {

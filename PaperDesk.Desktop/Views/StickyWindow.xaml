@@ -10,6 +10,7 @@
     <paper:PaperSurface.RenderTransform><TransformGroup><ScaleTransform x:Name="PaperScale"/><RotateTransform x:Name="PaperTilt"/><TranslateTransform x:Name="PaperSlide"/></TransformGroup></paper:PaperSurface.RenderTransform>
     <paper:PaperSurface.Effect><DropShadowEffect x:Name="PaperShadow" Color="Black" BlurRadius="20" ShadowDepth="7" Opacity="0.28"/></paper:PaperSurface.Effect>
     <Grid>
+    <Border x:Name="DragOutline" BorderThickness="1.5" CornerRadius="10" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="2"/>
     <Border x:Name="DropOutline" BorderBrush="#9A6D29" BorderThickness="2" CornerRadius="10" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="2"/>
     <Grid x:Name="SheetContent" Margin="18,6,18,18">
       <Grid.RowDefinitions><RowDefinition Height="32"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -27,8 +28,8 @@
             </Style>
           </StackPanel.Style>
           <Button x:Name="PinButton" Style="{StaticResource PaperButton}" Content="&#xE718;" FontFamily="Segoe MDL2 Assets" FontSize="14" Click="PinClick" ToolTip="{paper:T Text='Закрепить поверх окон'}" AutomationProperties.Name="{paper:T Text='Закрепить поверх окон'}"/>
-          <Button Style="{StaticResource PaperButton}" Click="ColorClick" ToolTip="{paper:T Text='Цвет бумаги'}" AutomationProperties.Name="{paper:T Text='Цвет бумаги'}"><Ellipse x:Name="ColorDot" Width="14" Height="14" Fill="#DAB963" Stroke="{StaticResource PaperInk}" StrokeThickness="1.3"/></Button>
-          <Button Style="{StaticResource PaperButton}" Content="•••" Click="MenuClick" ToolTip="{paper:T Text='Оформление и действия'}" AutomationProperties.Name="{paper:T Text='Оформление и действия'}"/>
+          <Button x:Name="AppearanceButton" Style="{StaticResource PaperButton}" Click="ColorClick" ToolTip="{paper:T Text='Оформление листика'}" AutomationProperties.Name="{paper:T Text='Оформление листика'}"><Ellipse x:Name="ColorDot" Width="14" Height="14" Fill="#DAB963" Stroke="{StaticResource PaperInk}" StrokeThickness="1.3"/></Button>
+          <Button Style="{StaticResource PaperButton}" Content="•••" Click="MenuClick" ToolTip="{paper:T Text='Действия с заметкой'}" AutomationProperties.Name="{paper:T Text='Действия с заметкой'}"/>
           <Button x:Name="MinimizeButton" Style="{StaticResource PaperButton}" Content="−" FontSize="17" Click="MinimizeStackClick" ToolTip="{paper:T Text='Свернуть стопку'}" AutomationProperties.Name="{paper:T Text='Свернуть стопку'}"/>
           <Button Style="{StaticResource PaperButton}" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="#753C35" Click="TrashClick" ToolTip="{paper:T Text='Скомкать и отправить в корзину'}" AutomationProperties.Name="{paper:T Text='Скомкать и отправить в корзину'}"/>
           <Button x:Name="HideButton" Style="{StaticResource PaperButton}" Click="HideClick" ToolTip="{paper:T Text='Скрыть листик'}" AutomationProperties.Name="{paper:T Text='Скрыть листик'}">

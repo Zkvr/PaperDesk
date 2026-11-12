@@ -24,6 +24,7 @@ public record Outgoing(Guid OperationId, Note Note, long ExpectedRevision, long 
 public record PushResult(string Status, Note? Note);
 public record Placement
 {
+    public const double MinimumOpacity = .84;
     public Guid NoteId { get; init; }
     // Missing in older profiles: common stack. Null explicitly means a loose sheet.
     public Guid? StackId { get; init; } = Guid.Empty;
@@ -37,6 +38,9 @@ public record Placement
     public string Font { get; init; } = "Segoe UI";
     public double FontSize { get; init; } = 17;
     public bool Favorite { get; init; }
+    public string Texture { get; init; } = "fibres";
+    public string Corners { get; init; } = "folded";
+    public string Shadow { get; init; } = "soft";
     public double Opacity { get; init; } = 1;
 }
 

@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using PaperDesk.Core;
+using PaperDesk.Desktop.Controls;
 using PaperDesk.Desktop.Services;
 using PaperDesk.Desktop.Views;
 using PaperDesk.Desktop.Win32Interop;
@@ -22,6 +23,13 @@ static class WindowsShellChecks
             "A note from a disconnected monitor must return to the primary monitor.");
         Require(StickyWindow.RecoveryPosition(new Rect(400, 30, 120, 40), [primary], primary) == null,
             "A visible note on a 100% monitor must stay in place.");
+        var sheet = new Rect(-650, 40, 180, 150);
+        Require(PaperDrag.SnapOffset(sheet, [new Rect(-458, 55, 180, 150), new Rect(-457, 55, 180, 150)], 8, 12) == new Vector(4, 0),
+            "Snap must use the nearest eligible edge at a negative screen origin.");
+        Require(PaperDrag.SnapOffset(sheet, [new Rect(-458, 195, 180, 150), new Rect(-400, 55, 180, 150)], 8, 12) == null,
+            "Diagonal or distant sheets must not pull on the cursor.");
+        Require(PaperDrag.SnapOffset(sheet, [new Rect(-643, 211, 180, 150)], 16, 24) == new Vector(0, 5),
+            "Snap must use a gap scaled to 200% DPI on a neighbouring vertical edge.");
         Console.WriteLine("PASS physical monitor geometry at 100% and 200%, negative origins and a disconnected display");
         return 0;
     }

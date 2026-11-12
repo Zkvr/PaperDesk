@@ -15,11 +15,8 @@ internal sealed class PaperDragResponse(Action<Vector, double> render)
     {
         grabbed = true;
         target = default;
-        if (rendering) return;
-        rendering = true;
         lastSample = Stopwatch.GetTimestamp();
-        lastFrame = null;
-        CompositionTarget.Rendering += OnFrame;
+        StartRendering();
     }
 
     public void Follow(Vector velocity)
@@ -28,16 +25,37 @@ internal sealed class PaperDragResponse(Action<Vector, double> render)
         target = velocity / 570;
         if (target.LengthSquared > 1) target.Normalize();
         lastSample = Stopwatch.GetTimestamp();
+        StartRendering();
     }
 
-    public void Release() => grabbed = false;
+    public void Release()
+    {
+        if (!grabbed) return;
+        grabbed = false;
+        StartRendering();
+    }
 
     public void Stop()
     {
-        if (rendering) CompositionTarget.Rendering -= OnFrame;
-        rendering = grabbed = false;
+        StopRendering();
+        grabbed = false;
         target = pull = momentum = default;
         grip = 0;
+    }
+
+    private void StartRendering()
+    {
+        if (rendering) return;
+        rendering = true;
+        lastFrame = null;
+        CompositionTarget.Rendering += OnFrame;
+    }
+
+    private void StopRendering()
+    {
+        if (!rendering) return;
+        CompositionTarget.Rendering -= OnFrame;
+        rendering = false;
     }
 
     private void OnFrame(object? sender, EventArgs args)
@@ -54,10 +72,13 @@ internal sealed class PaperDragResponse(Action<Vector, double> render)
         pull += momentum * dt;
         if (pull.LengthSquared > 1) pull.Normalize();
         grip += ((grabbed ? 1 : 0) - grip) * (1 - Math.Exp(-dt * 24));
-        if (!grabbed && grip < .015 && pull.LengthSquared < .00005 && momentum.LengthSquared < .005)
+        var settledGrip = grabbed ? 1 : 0;
+        if (Math.Abs(grip - settledGrip) < .015 && pull.LengthSquared < .00005 && momentum.LengthSquared < .005 && desired.LengthSquared < .00005)
         {
-            Stop();
-            render(default, 0);
+            StopRendering();
+            target = pull = momentum = default;
+            grip = settledGrip;
+            render(default, grip);
             return;
         }
         render(pull, grip);

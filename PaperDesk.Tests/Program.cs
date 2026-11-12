@@ -190,12 +190,26 @@ var tests = new (string Name, Action Run)[]
     ("Backup roundtrip preserves Unicode, trash and recovery versions", () => WithStore(s => {
         var n = new Note { Title = "Поездка", Body = "# Список\nёжик 🦔\n<текст>", DeletedAt = DateTimeOffset.UtcNow }; s.Save(n);
         s.SetConflict(s.Pending().Single(), n with { Body = "server", Revision = 1 });
-        s.SavePlacement(new Placement { NoteId = n.Id, X = 512 });
+        s.SavePlacement(new Placement { NoteId = n.Id, X = 512, Texture = "linen", Corners = "round", Shadow = "none", Opacity = .92 });
         using var other = new NoteStore(Path.Combine(Path.GetDirectoryName(Path.GetTempFileName())!, Guid.NewGuid() + ".db"));
         Equal(1, other.Import(s.Export())); Equal(n.Body, other.All().Single().Note.Body);
         Equal(true, other.All().Single().Note.DeletedAt != null);
-        Equal(512d, other.GetPlacement(n.Id).X);
+        var restored = other.GetPlacement(n.Id);
+        Equal(512d, restored.X);
+        Equal("linen", restored.Texture);
+        Equal("round", restored.Corners);
+        Equal("none", restored.Shadow);
+        Equal(.92, restored.Opacity);
         Equal(true, Json.Read<Backup>(other.Export()).RecoveryVersions.Any(x => x.Body == "server"));
+    })),
+    ("Older placements retain the paper defaults and invalid appearance is normalized", () => WithStore(s => {
+        var old = Json.Read<Placement>("{\"color\":\"#DCEBFF\"}");
+        Equal("fibres", old.Texture); Equal("folded", old.Corners); Equal("soft", old.Shadow); Equal(1d, old.Opacity);
+        var note = new Note { Body = "Paper" }; s.Save(note);
+        s.SavePlacement(old with { NoteId = note.Id, Texture = "other", Corners = "other", Shadow = "other", Opacity = .2 });
+        var saved = s.GetPlacement(note.Id);
+        Equal("fibres", saved.Texture); Equal("folded", saved.Corners); Equal("soft", saved.Shadow);
+        Equal(Placement.MinimumOpacity, saved.Opacity); Equal("#DCEBFF", saved.Color);
     })),
     ("Exported files preserve the backup and Markdown formats", () => WithPath(path => {
         using var s = new NoteStore(path);
@@ -263,7 +277,7 @@ var tests = new (string Name, Action Run)[]
         s.Save(source);
         var outgoing = s.Pending().Single();
         s.SavePlacement(new Placement { NoteId = source.Id, Visible = true, Favorite = true,
-            Topmost = true, Color = "#DDF0D5", FontSize = 22 });
+            Topmost = true, Color = "#DDF0D5", FontSize = 22, Texture = "smooth", Corners = "square", Shadow = "deep", Opacity = .88 });
         Equal(true, s.AddImages(source.Id, [png], layout));
         var originalPicture = s.ImageIds(source.Id).Single();
         var changes = 0;
@@ -279,6 +293,7 @@ var tests = new (string Name, Action Run)[]
         var placement = s.GetPlacement(id);
         Equal("#DDF0D5", placement.Color);
         Equal(22d, placement.FontSize);
+        Equal("smooth", placement.Texture); Equal("square", placement.Corners); Equal("deep", placement.Shadow); Equal(.88, placement.Opacity);
         Equal<Guid?>(null, placement.StackId);
         Equal(false, placement.Visible || placement.Favorite || placement.Topmost);
         var picture = s.ImageLayouts(id).Single();

@@ -13,14 +13,19 @@ using PaperDesk.Storage;
 
 static class PerformanceChecks
 {
-    public static int Seed(string folder, int count)
+    public static int Seed(string folder, int count, int visible = 0)
     {
         if (Directory.Exists(folder)) throw new IOException("Use a new directory for synthetic data.");
         using var store = new NoteStore(Path.Combine(folder, "profiles", "local", "notes.db"));
         var body = string.Concat(Enumerable.Repeat("Synthetic note text with a checklist and a line break.\n", 10));
         for (var i = 0; i < count; i++)
-            store.Save(new Note { Title = $"Synthetic note {i + 1}", Body = "- [ ] Test\n" + body });
-        var settings = new Settings { Animations = false, ShowNotesAtStartup = false };
+        {
+            var note = new Note { Title = $"Synthetic note {i + 1}", Body = "- [ ] Test\n" + body };
+            store.Save(note);
+            if (i < visible) store.SavePlacement(new Placement { NoteId = note.Id, StackId = null, Visible = true, X = 60 + i * 260, Y = 80, Width = 240, Height = 220 });
+        }
+        var settings = new Settings { Animations = false, ShowNotesAtStartup = visible > 0 };
+        if (visible > 0) settings = settings with { Hotkey = "Ctrl+Alt+Shift+F7", SummonHotkey = "Ctrl+Alt+Shift+F8" };
         File.WriteAllText(Path.Combine(folder, "settings.json"), Json.Write(settings));
         return 0;
     }

@@ -26,13 +26,19 @@ static class UiChecks
         if (args is ["--display-geometry"]) return WindowsShellChecks.CheckGeometry();
         if (args is ["--seed-performance", var seedFolder, var count])
             return PerformanceChecks.Seed(seedFolder, int.Parse(count));
+        if (args is ["--seed-motion-profile", var motionFolder]) return PerformanceChecks.Seed(motionFolder, 12, visible: 4);
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
         Require(PaperDesk.Core.L.T("Все заметки") == "All notes", "English UI strings must load from the embedded resource");
         Require(PaperDesk.Core.L.T("Стопки на столе ▾") == "Desktop stacks ▾", "Stack controls must be localized");
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
         Require(PaperDesk.Core.L.T("Все заметки") == "Все заметки", "Russian UI strings must follow the UI culture");
+        var englishAppearance = args is ["--appearance", _, "en"];
+        if (englishAppearance)
+            System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.CurrentCulture =
+                System.Globalization.CultureInfo.GetCultureInfo("en-US");
         var app=new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
+        if (englishAppearance || args is ["--appearance", _]) return CheckAppearance(args[1], englishAppearance);
         if (args is ["--performance", var performanceFolder]) return PerformanceChecks.Run(performanceFolder);
         if (args is ["--manager-scale", var managerFolder]) return PerformanceChecks.CheckScrolling(managerFolder);
         if (args is ["--usability", var usabilityFolder]) return UsabilityChecks.Run(usabilityFolder);
@@ -127,8 +133,8 @@ static class UiChecks
         Require(Contrast(ink,Color.FromRgb(27,30,36))>10,"Dark theme foreground must be readable");
         foreach(var (_,color) in PaperPalette.Colors)Require(Contrast(Color.FromRgb(48,45,41),PaperPalette.Brush(color).Color)>8,"Paper text contrast");
         Console.WriteLine("PASS contrast exceeds 10:1 on graphite and 8:1 on every paper");
-        var picker=new PaperColorPicker{SelectedColor="#F4E5AD",Width=208,Height=34};picker.ColorSelected+=color=>store.SavePlacement(new Placement{NoteId=note.Id,Color=color});Layout(picker);var colorButtons=Descendants(picker).OfType<Button>().ToList();
-        Require(colorButtons.Count==6&&colorButtons.All(b=>b.Content is System.Windows.Shapes.Ellipse),"Color choices must be visible swatches");colorButtons[3].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));Require(store.GetPlacement(note.Id).Color=="#CDDCE9","Swatch click must persist the selected color");
+        var picker=new PaperColorPicker{SelectedColor="#F4E5AD",Width=208,Height=68};picker.ColorSelected+=color=>store.SavePlacement(new Placement{NoteId=note.Id,Color=color});Layout(picker);var colorButtons=Descendants(picker).OfType<Button>().ToList();
+        Require(colorButtons.Count==12&&colorButtons.All(b=>b.Content is System.Windows.Shapes.Ellipse),"Color choices must be visible swatches");colorButtons[9].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));Require(store.GetPlacement(note.Id).Color=="#B7DBDA","New swatch click must persist the selected color");
         Console.WriteLine("PASS visual color swatches persist the selected color");
         var paperButton=new Button{Style=(Style)app.FindResource("PaperButton"),Content="2 / 2  ⌄",Width=210,Height=36};Layout(paperButton);
         var renderedLabel=Descendants(paperButton).OfType<TextBlock>().First(x=>x.Text.Contains("2 / 2"));
@@ -164,7 +170,7 @@ static class UiChecks
         Require(lastBounds.Top >= -.5 && lastBounds.Bottom <= linePanel.Clip.Bounds.Bottom + .5,
             "The end of a long note must scroll fully into view");
         Console.WriteLine("PASS scrolling preserves full rows at both edges, including wrapped tasks and the last row");
-        var sizePicker=new NoteSizePicker{Width=208,Height=36};Size requested=new();sizePicker.SizeSelected+=s=>requested=s;Layout(sizePicker);Descendants(sizePicker).OfType<Button>().ElementAt(1).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));Require(requested==new Size(330,370),"A visible size preset must request real window dimensions");
+        var sizePicker=new NoteSizePicker{Width=252,Height=92};Size requested=new();sizePicker.SizeSelected+=s=>requested=s;Layout(sizePicker);Descendants(sizePicker).OfType<Button>().ElementAt(1).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));Require(requested==new Size(330,370),"A visible size preset must request real window dimensions");
         Console.WriteLine("PASS visible note-size preset requests the selected dimensions");
         Descendants(sizePicker).OfType<Button>().First().RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));Require(requested==new Size(240,220),"The small preset must be smaller than the former 260 by 300 limit");
         var stackNotes=new[]{new Note(),new Note(),new Note()};
@@ -224,7 +230,7 @@ static class UiChecks
         SaveRender(compactPaper,Path.Combine(folder,"compact-minimum.png"));
         StickyLayout.Apply(compactContent,false);Require(compactTitle.FontSize==21,"Growing a sheet restores regular title size");
         Console.WriteLine("PASS minimum-size layout leaves readable, interactive body content");
-        var palettePanel=new StackPanel{Margin=new Thickness(14)};palettePanel.Children.Add(new TextBlock{Text="Цвет бумаги",FontSize=11,Foreground=(Brush)app.FindResource("MutedInk"),Margin=new Thickness(3,0,0,9)});palettePanel.Children.Add(picker);var paletteFrame=new Border{Width=238,Height=93,Background=new SolidColorBrush(Color.FromRgb(37,42,50)),CornerRadius=new CornerRadius(12),Child=palettePanel};Layout(paletteFrame);SaveRender(paletteFrame,Path.Combine(folder,"color-picker.png"));
+        var palettePanel=new StackPanel{Margin=new Thickness(14)};palettePanel.Children.Add(new TextBlock{Text="Цвет бумаги",FontSize=11,Foreground=(Brush)app.FindResource("MutedInk"),Margin=new Thickness(3,0,0,9)});palettePanel.Children.Add(picker);var paletteFrame=new Border{Width=238,Height=127,Background=new SolidColorBrush(Color.FromRgb(37,42,50)),CornerRadius=new CornerRadius(12),Child=palettePanel};Layout(paletteFrame);SaveRender(paletteFrame,Path.Combine(folder,"color-picker.png"));
         var surface=new PaperSurface{Width=330,Height=370,Fill=PaperPalette.Brush("#F4E5AD")};
         var layout=new Grid{Margin=new Thickness(25,28,25,28)};layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});layout.RowDefinitions.Add(new RowDefinition());layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         layout.Children.Add(new TextBlock{Text="Позвонить",FontFamily=new FontFamily("Segoe Print"),FontSize=23,FontWeight=FontWeights.SemiBold,Foreground=PaperPalette.Brush("#302D29"),Margin=new Thickness(0,0,0,20)});
@@ -765,9 +771,148 @@ static class UiChecks
             item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         }
     }
-    static void SaveSized(FrameworkElement element, string path)
+    private static int CheckAppearance(string folder, bool english)
     {
-        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth), (int)Math.Ceiling(element.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        Directory.CreateDirectory(folder);
+        var profile = Path.Combine(folder, "profile-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(profile);
+        var settingsPath = Path.Combine(profile, "settings.json");
+        File.WriteAllText(settingsPath, Json.Write(new Settings { Animations = false, Hotkey = "Ctrl+Alt+Shift+F7", SummonHotkey = "Ctrl+Alt+Shift+F8" }));
+        using var desk = new DeskController(profile);
+        (string Title, string Body, int Color)[] notes = english ?
+        [
+            ("Saturday plans", "- [x] Pick a route\n- [ ] Visit the bookshop\n- [ ] Coffee by the river\n\nBring a notebook and leave the evening free.", 0),
+            ("Studio plans", "An open shelf by the window. Warm light and a small table.", 7),
+            ("Reading log", "Save a favorite passage and choose the next book.", 10),
+            ("Art supplies", "Watercolors, paper and brushes.", 9),
+            ("Week ahead", "Wednesday meeting. A walk on Friday evening.", 8),
+            ("Playlist", "Songs for the long drive.", 11)
+        ] :
+        [
+            ("Суббота в городе", "- [x] Выбрать маршрут\n- [ ] Заглянуть в книжный\n- [ ] Кофе у реки\n\nВзять блокнот и оставить вечер свободным.", 0),
+            ("Идеи для студии", "Открытая полка у окна. Тёплый свет и небольшой стол.", 7),
+            ("Читаю сейчас", "Записать любимые страницы и выбрать следующую книгу.", 10),
+            ("В мастерскую", "Акварель, бумага и кисти.", 9),
+            ("Планы на неделю", "Встреча в среду. Прогулка вечером в пятницу.", 8),
+            ("Летний плейлист", "Песни для длинной дороги.", 11)
+        ];
+        foreach (var (title, body, color) in notes)
+        {
+            var note = new Note { Title = title, Body = body };
+            desk.Store.Save(note);
+            desk.Store.SavePlacement(new Placement { NoteId = note.Id, Color = PaperPalette.Colors[color].Color, Favorite = color == 0 });
+        }
+        var manager = new ManagerWindow(desk) { Width = 1120, Height = 720, ShowActivated = false };
+        var settings = new SettingsWindow(desk) { ShowActivated = false };
+        try
+        {
+            manager.Show();
+            settings.Show();
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Require(!english || manager.Title == "PaperDesk — notes", "Public screenshots must use the English manager");
+            var cards = (ListBox)manager.FindName("Cards");
+            cards.SelectedItem = cards.Items.Cast<NoteCard>().Single(card => card.Title == notes[0].Title);
+            var root = (Border)manager.FindName("RootFrame");
+            var editor = (NoteBodyEditor)manager.FindName("EditBody");
+            var choices = Descendants(settings).OfType<RadioButton>().ToArray();
+            var ocean = choices.Single(button => System.Windows.Automation.AutomationProperties.GetName(button) == PaperDesk.Core.L.T("Океан"));
+            var graphite = (SolidColorBrush)root.Background;
+            SaveSized(root, Path.Combine(folder, "manager-graphite.png"));
+            ocean.IsChecked = true;
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Require(((SolidColorBrush)root.Background).Color != graphite.Color && Json.Read<Settings>(File.ReadAllText(settingsPath)).Theme == "ocean",
+                "Theme selection must update an open manager and persist immediately");
+            Require(editor.Text == notes[0].Body && editor.IsEnabled, "Theme switching must keep the selected note editable");
+            SaveSized(root, Path.Combine(folder, "manager-ocean.png"));
+            SaveSized(settings, Path.Combine(folder, "settings-themes.png"), 250);
+            choices.Single(button => System.Windows.Automation.AutomationProperties.GetName(button) == PaperDesk.Core.L.T("Глина")).IsChecked = true;
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            SaveSized(root, Path.Combine(folder, "manager-clay.png"));
+            Require(ThemePalette.Find("unknown").Id == "graphite", "Unknown themes must use the default palette");
+
+            ocean.IsChecked = true;
+            CheckPaperPanel(desk, folder, english);
+        }
+        finally { settings.Close(); manager.Close(); }
+        Console.WriteLine("PASS live appearance selection, settings persistence and note editing state");
+        return 0;
+    }
+
+    private static void CheckPaperPanel(DeskController desk, string folder, bool english)
+    {
+        var note = english
+            ? new Note { Title = "Saturday", Body = "- [x] Coffee by the river\n- [ ] Visit the bookshop" }
+            : new Note { Title = "Маршрут", Body = "- [x] Кофе у реки\n- [ ] Зайти в книжный" };
+        desk.Store.Save(note);
+        desk.Store.SavePlacement(new Placement { NoteId = note.Id, StackId = null, X = 95, Y = 135, Color = "#B7DBDA" });
+        var sticky = new StickyWindow(desk, note.Id, animateOpening: false) { ShowActivated = false };
+        try
+        {
+            sticky.Show();
+            var button = (Button)sticky.FindName("AppearanceButton");
+            button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            var panel = PresentationSource.CurrentSources.Cast<PresentationSource>()
+                .Select(source => source.RootVisual).OfType<Visual>().SelectMany(Descendants)
+                .OfType<Border>().Single(border => border.Child is ScrollViewer { Content: StackPanel stack } &&
+                    stack.Children.OfType<PaperColorPicker>().Any());
+            Require(!english || Descendants(panel).OfType<TextBlock>().Any(label => label.Text == "Paper appearance"),
+                "Public screenshots must use the English appearance panel");
+            var options = Descendants(panel).OfType<ComboBox>().ToArray();
+            options[0].SelectedIndex = 2;
+            options[1].SelectedIndex = 1;
+            options[2].SelectedIndex = 0;
+            options[3].SelectedIndex = options[3].Items.Count - 1;
+            var compact = Descendants(panel).OfType<NoteSizePicker>().Single().Children[0] as Button;
+            compact!.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            var placement = desk.Store.GetPlacement(note.Id);
+            var paper = (PaperSurface)sticky.FindName("Paper");
+            var body = (NoteBodyEditor)sticky.FindName("BodyBox");
+            Require(placement is { Texture: "linen", Corners: "round", Shadow: "none", Width: 240, Height: 220 } &&
+                Math.Abs(placement.Opacity - Placement.MinimumOpacity) < .0001 && paper.Effect == null && paper.Texture == "linen",
+                "Paper options must update the real sheet and persist on the correct note");
+            Require(sticky.Opacity == 1 && paper.Opacity == 1 && body.Text == note.Body,
+                "Only the paper face should become translucent");
+            foreach (var (_, color) in PaperPalette.Colors)
+            {
+                var fill = PaperPalette.Brush(color).Color;
+                var darkest = Color.FromRgb((byte)(fill.R * Placement.MinimumOpacity), (byte)(fill.G * Placement.MinimumOpacity), (byte)(fill.B * Placement.MinimumOpacity));
+                Require(Contrast(Color.FromRgb(48, 45, 41), darkest) >= 4.5, "Ink must be readable on each translucent swatch");
+            }
+            SavePaperPair((FrameworkElement)sticky.Content, panel, Path.Combine(folder, "paper-appearance.png"));
+        }
+        finally { sticky.CloseFromController(); }
+    }
+
+    private static void SavePaperPair(FrameworkElement note, FrameworkElement panel, string path)
+    {
+        var width = (int)Math.Ceiling(note.ActualWidth + panel.ActualWidth) + 48;
+        var height = (int)Math.Ceiling(Math.Max(note.ActualHeight, panel.ActualHeight)) + 36;
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+        {
+            drawing.DrawRectangle(new SolidColorBrush(Color.FromRgb(21, 32, 45)), null, new Rect(0, 0, width, height));
+            Draw(note, 16);
+            Draw(panel, note.ActualWidth + 26);
+
+            void Draw(FrameworkElement control, double x)
+            {
+                var brush = new VisualBrush(control) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(control.RenderSize), Stretch = Stretch.Fill };
+                drawing.DrawRectangle(brush, null, new Rect(new Point(x, 18), control.RenderSize));
+            }
+        }
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
+    }
+
+    static void SaveSized(FrameworkElement element, string path, int maxHeight = int.MaxValue)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth), Math.Min(maxHeight, (int)Math.Ceiling(element.ActualHeight)), 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(element);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -778,7 +923,7 @@ static class UiChecks
     {
         var profile = Path.Combine(folder, "peel-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(profile);
-        File.WriteAllText(Path.Combine(profile, "settings.json"), Json.Write(new Settings { Animations = false }));
+        File.WriteAllText(Path.Combine(profile, "settings.json"), Json.Write(new Settings { Animations = false, SnapNotes = true }));
         using var desk = new DeskController(profile);
         var notes = Enumerable.Range(0, 3).Select(index => new Note
             { Title = $"Sheet {index + 1}", Body = "Keep this text", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(index) }).ToArray();
@@ -807,6 +952,7 @@ static class UiChecks
         body.EndEdit();
         Settle();
         Require(!format.IsVisible, "Finishing editing must hide formatting again");
+        CheckDragRendering();
 
         source.DragStarted(wholeStack: false);
         Settle();
@@ -870,6 +1016,20 @@ static class UiChecks
         Require(Bounds(secondary) == primaryBounds && desk.StackNotes(second.StackId!.Value).Count == 2 &&
             Math.Abs(desk.Store.GetStack(second.StackId.Value)!.X - second.Left) < .5,
             "Dragging the top grip must move the whole stack without changing its membership or the other stack");
+        var beforeSnap = Bounds(second);
+        var dpi = VisualTreeHelper.GetDpi(second).DpiScaleX;
+        second.DragStarted(wholeStack: true);
+        var currentGap = second.SheetFrameBounds().Left - secondary.SheetFrameBounds().Right;
+        second.Left += (15 * dpi - currentGap) / dpi;
+        Settle();
+        second.DragMoved(Center(second.PaperScreenBounds()), default);
+        var snappedGap = second.SheetFrameBounds().Left - secondary.SheetFrameBounds().Right;
+        Require(Math.Abs(snappedGap - 8 * dpi) < 2 && ((Border)second.FindName("DragOutline")).IsVisible &&
+            ((PaperSurface)second.FindName("Paper")).DragPull == default,
+            "Nearby sheets must snap and show feedback with animations disabled");
+        second.DragFinished(null, beforeSnap);
+        Require(Bounds(second) == beforeSnap && !((Border)second.FindName("DragOutline")).IsVisible,
+            "Cancelling the snapped move must restore its original bounds and clear feedback");
         Console.WriteLine("PASS editing-only format, separate move and peel grips, stacking and stack renaming");
 
         var hidden = new Note { Title = "Hidden sheet in the source stack" };
@@ -916,6 +1076,40 @@ static class UiChecks
         static Rect Bounds(StickyWindow w) => new(w.Left, w.Top, w.Width, w.Height);
         static Point Center(Rect bounds) => new(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
         static void Settle() => Dispatcher.CurrentDispatcher.Invoke(() => {}, DispatcherPriority.Background);
+    }
+
+    private static void CheckDragRendering()
+    {
+        var frames = 0;
+        var lastPull = new Vector();
+        var lastGrip = 0d;
+        var response = new PaperDragResponse((pull, grip) => { frames++; lastPull = pull; lastGrip = grip; });
+        try
+        {
+            response.Grab();
+            response.Follow(new Vector(450, -350));
+            Pump(800);
+            var paused = frames;
+            Require(paused > 2 && lastPull == default && lastGrip == 1, "A held sheet must settle when the pointer stops");
+            Pump(180);
+            Require(frames == paused, "Settled motion must unsubscribe from the rendering loop");
+            response.Follow(new Vector(-550, 100));
+            Pump(100);
+            Require(frames > paused && lastPull.X < 0, "Moving again must resume the rendering loop");
+            response.Release();
+            Pump(650);
+            Require(lastPull == default && lastGrip == 0, "Releasing a sheet must restore its resting pose");
+        }
+        finally { response.Stop(); }
+
+        static void Pump(int milliseconds)
+        {
+            var frame = new DispatcherFrame();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds) };
+            timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+            timer.Start();
+            Dispatcher.PushFrame(frame);
+        }
     }
 
     static void Layout(FrameworkElement e){e.Measure(new Size(e.Width,e.Height));e.Arrange(new Rect(0,0,e.Width,e.Height));e.UpdateLayout();}

@@ -34,12 +34,15 @@ public static class WindowMaterial
                 return;
             }
         }
-        window.Background = new SolidColorBrush(Color.FromRgb(27, 30, 36));
+        window.SetResourceReference(Control.BackgroundProperty, "DeskWindowBackground");
     }
     public static void Reveal(FrameworkElement surface, bool enabled)
     {
         if (!enabled || !SystemParameters.ClientAreaAnimation) return;
-        surface.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(.3, 1, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        surface.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(.3, 1, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop
+        });
     }
     [StructLayout(LayoutKind.Sequential)] private struct Margins { public int Left, Right, Top, Bottom; }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint handle, int attribute, ref int value, int size);

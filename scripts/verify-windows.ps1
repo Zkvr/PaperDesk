@@ -40,6 +40,7 @@ try {
 
     if ($Interactive) {
         Invoke-Checked { dotnet $desktop (Join-Path $fixtures 'wpf') }
+        Invoke-Checked { dotnet $desktop --appearance (Join-Path $fixtures 'appearance') }
         Invoke-Checked { dotnet $desktop --manager-scale (Join-Path $fixtures 'manager-scale') }
         Invoke-Checked { dotnet $desktop --usability (Join-Path $fixtures 'usability') }
         Invoke-Checked { dotnet $desktop --windows-shell (Join-Path $fixtures 'shell') }

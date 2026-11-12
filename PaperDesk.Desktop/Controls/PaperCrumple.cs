@@ -17,6 +17,7 @@ public sealed class PaperCrumple : FrameworkElement
     private static readonly Face[] Faces = MakeFaces();
     private static readonly Brush Shadow = new RadialGradientBrush(Color.FromArgb(84, 23, 17, 10), Color.FromArgb(0, 23, 17, 10));
     private BitmapSource? image;
+    private Action? complete;
 
     public PaperCrumple()
     {
@@ -38,6 +39,7 @@ public sealed class PaperCrumple : FrameworkElement
         snapshot.Freeze();
 
         image = snapshot;
+        complete = finished;
         Progress = 0;
         Visibility = Visibility.Visible;
         var animation = new DoubleAnimation(0, desktopDrop ? Folded : 1, TimeSpan.FromMilliseconds(desktopDrop ? 760 : 980));
@@ -45,7 +47,7 @@ public sealed class PaperCrumple : FrameworkElement
         {
             if (image != snapshot) return;
             try { if (desktopDrop && IsVisible) DropBundle(); }
-            finally { Cancel(); finished(); }
+            finally { FinishNow(); }
         };
         BeginAnimation(ProgressProperty, animation);
         return true;
@@ -53,9 +55,18 @@ public sealed class PaperCrumple : FrameworkElement
 
     public void Cancel()
     {
+        complete = null;
         image = null;
         Visibility = Visibility.Collapsed;
         BeginAnimation(ProgressProperty, null);
+    }
+
+    internal void FinishNow()
+    {
+        var finished = complete;
+        if (finished == null) return;
+        Cancel();
+        finished();
     }
 
     protected override void OnRender(DrawingContext dc) => DrawFrame(dc, Math.Clamp(Progress, 0, 1));
