@@ -37,6 +37,7 @@ try {
     Invoke-Checked { dotnet $desktop --profile-storage (Join-Path $fixtures 'profiles') }
     Invoke-Checked { dotnet $desktop --error-log (Join-Path $fixtures 'logs') }
     Invoke-Checked { dotnet $desktop --display-geometry }
+    Invoke-Checked { dotnet $desktop --updates (Join-Path $fixtures 'updates') }
 
     if ($Interactive) {
         Invoke-Checked { dotnet $desktop (Join-Path $fixtures 'wpf') }
@@ -44,8 +45,11 @@ try {
         Invoke-Checked { dotnet $desktop --manager-scale (Join-Path $fixtures 'manager-scale') }
         Invoke-Checked { dotnet $desktop --usability (Join-Path $fixtures 'usability') }
         Invoke-Checked { dotnet $desktop --windows-shell (Join-Path $fixtures 'shell') }
+        Invoke-Checked { dotnet $desktop --tray-exit (Join-Path $fixtures 'tray-exit') }
+        Invoke-Checked { dotnet $desktop --tray-exit (Join-Path $fixtures 'tray-exit') }
         Invoke-Checked { dotnet $desktop --web-editor (Join-Path $fixtures 'webview') }
         Invoke-Checked { dotnet $desktop --web-editor-fallback (Join-Path $fixtures 'fallback') }
+        Invoke-Checked { dotnet $desktop --native-editor (Join-Path $fixtures 'native-editor') }
         Invoke-Checked { dotnet $desktop --editor-lifetime (Join-Path $fixtures 'lifetime') }
     }
 } finally { Pop-Location }

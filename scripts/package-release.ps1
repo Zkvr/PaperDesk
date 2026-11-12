@@ -46,6 +46,11 @@ try {
     $products = @($portable)
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $files = [IO.Directory]::GetFiles($stage, '*', [IO.SearchOption]::AllDirectories)
+    $portableMarker = Join-Path $stage 'PaperDesk.portable.txt'
+    $owned = @($files | ForEach-Object { $_.Substring($stage.Length + 1).Replace('\', '/') })
+    [Array]::Sort($owned, [StringComparer]::Ordinal)
+    [IO.File]::WriteAllLines($portableMarker, [string[]](@($version) + $owned))
+    $files = [string[]]($files + $portableMarker)
     [Array]::Sort($files, [StringComparer]::Ordinal)
     $stream = [IO.File]::Open($portable, [IO.FileMode]::Create)
     try {

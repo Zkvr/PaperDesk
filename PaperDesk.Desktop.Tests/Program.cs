@@ -24,6 +24,7 @@ static class UiChecks
         if (args is ["--error-log", var errorLogFolder])
             return ErrorLogChecks.Run(errorLogFolder);
         if (args is ["--display-geometry"]) return WindowsShellChecks.CheckGeometry();
+        if (args is ["--updates", var updatesFolder]) return UpdateChecks.Run(updatesFolder);
         if (args is ["--seed-performance", var seedFolder, var count])
             return PerformanceChecks.Seed(seedFolder, int.Parse(count));
         if (args is ["--seed-motion-profile", var motionFolder]) return PerformanceChecks.Seed(motionFolder, 12, visible: 4);
@@ -40,12 +41,16 @@ static class UiChecks
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
         if (englishAppearance || args is ["--appearance", _]) return CheckAppearance(args[1], englishAppearance);
         if (args is ["--performance", var performanceFolder]) return PerformanceChecks.Run(performanceFolder);
+        if (args is ["--idle-render", var idleFolder, "web" or "native", "software" or "default"])
+            return PerformanceChecks.MeasureIdleRender(idleFolder, web: args[2] == "web", software: args[3] == "software");
         if (args is ["--manager-scale", var managerFolder]) return PerformanceChecks.CheckScrolling(managerFolder);
         if (args is ["--usability", var usabilityFolder]) return UsabilityChecks.Run(usabilityFolder);
         if (args is ["--windows-shell", var shellFolder]) return WindowsShellChecks.CheckDesktop(shellFolder);
+        if (args is ["--tray-exit", var trayFolder]) return WindowsShellChecks.CheckTrayExit(trayFolder);
         if (args is ["--editor-lifetime", var lifetimeFolder]) return WebEditorChecks.RunLifetime(lifetimeFolder);
         if (args is ["--web-editor", var editorFolder]) return WebEditorChecks.Run(editorFolder);
         if (args is ["--web-editor-fallback", var fallbackFolder]) return WebEditorChecks.Run(fallbackFolder, withoutRuntime: true);
+        if (args is ["--native-editor", var nativeFolder]) return WebEditorChecks.Run(nativeFolder, preferNative: true);
         if (args.Length > 1 || args.FirstOrDefault()?.StartsWith("--", StringComparison.Ordinal) == true)
             throw new ArgumentException("Expected a test mode or an output directory.");
         var body=new NoteBodyEditor { Width=270,Height=180,FontSize=17,Text="☐ В банк\n☑ В сервис\nОбычная строка" };
@@ -825,6 +830,13 @@ static class UiChecks
             Require(editor.Text == notes[0].Body && editor.IsEnabled, "Theme switching must keep the selected note editable");
             SaveSized(root, Path.Combine(folder, "manager-ocean.png"));
             SaveSized(settings, Path.Combine(folder, "settings-themes.png"), 250);
+            manager.ShowUpdate(new ReleaseUpdate("v0.8.1-beta", Installed: false, Size: 100, Sha256: ""));
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            var update = (Button)manager.FindName("UpdateButton");
+            Require(update.IsVisible && System.Windows.Automation.AutomationProperties.GetName(update) ==
+                PaperDesk.Core.L.F("Скачать обновление {0}", "v0.8.1-beta"), "Available updates need a visible, localized button");
+            SaveSized(root, Path.Combine(folder, "manager-update.png"));
+            manager.ShowUpdate(null);
             choices.Single(button => System.Windows.Automation.AutomationProperties.GetName(button) == PaperDesk.Core.L.T("Глина")).IsChecked = true;
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
             SaveSized(root, Path.Combine(folder, "manager-clay.png"));
@@ -849,13 +861,19 @@ static class UiChecks
         try
         {
             sticky.Show();
+            var more = Descendants(sticky).OfType<Button>().Single(button => Equals(button.Content, "•••"));
+            more.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            var actions = OpenPopups().OfType<Border>().Single(border => border.Child is StackPanel &&
+                Descendants(border).OfType<TextBlock>().Any(label => label.Text == PaperDesk.Core.L.T("Размер текста")));
+            Require(!Descendants(actions).OfType<PaperColorPicker>().Any(),
+                "The sheet actions must leave the color picker in the appearance panel.");
+
             var button = (Button)sticky.FindName("AppearanceButton");
             button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
-            var panel = PresentationSource.CurrentSources.Cast<PresentationSource>()
-                .Select(source => source.RootVisual).OfType<Visual>().SelectMany(Descendants)
-                .OfType<Border>().Single(border => border.Child is ScrollViewer { Content: StackPanel stack } &&
-                    stack.Children.OfType<PaperColorPicker>().Any());
+            var panel = OpenPopups().OfType<Border>().Single(border =>
+                border.Child is ScrollViewer { Content: StackPanel stack } && stack.Children.OfType<PaperColorPicker>().Any());
             Require(!english || Descendants(panel).OfType<TextBlock>().Any(label => label.Text == "Paper appearance"),
                 "Public screenshots must use the English appearance panel");
             var options = Descendants(panel).OfType<ComboBox>().ToArray();
@@ -883,6 +901,9 @@ static class UiChecks
             SavePaperPair((FrameworkElement)sticky.Content, panel, Path.Combine(folder, "paper-appearance.png"));
         }
         finally { sticky.CloseFromController(); }
+
+        static IEnumerable<DependencyObject> OpenPopups() => PresentationSource.CurrentSources.Cast<PresentationSource>()
+            .Select(source => source.RootVisual).OfType<Visual>().SelectMany(Descendants);
     }
 
     private static void SavePaperPair(FrameworkElement note, FrameworkElement panel, string path)

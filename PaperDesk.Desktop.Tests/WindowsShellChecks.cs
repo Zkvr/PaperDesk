@@ -31,7 +31,29 @@ static class WindowsShellChecks
         Require(PaperDrag.SnapOffset(sheet, [new Rect(-643, 211, 180, 150)], 16, 24) == new Vector(0, 5),
             "Snap must use a gap scaled to 200% DPI on a neighbouring vertical edge.");
         Console.WriteLine("PASS physical monitor geometry at 100% and 200%, negative origins and a disconnected display");
+        CheckWorkerCache();
         return 0;
+    }
+
+    private static void CheckWorkerCache()
+    {
+        var searches = 0;
+        nint worker = 0;
+        var cache = new DesktopLayer.WorkerCache(_ => { searches++; return worker; }, handle => handle == worker);
+        Require(cache.Get(0, 0) == 0 && searches == 0, "A missing Explorer must not start worker discovery.");
+        for (var now = 0; now < 30_000; now += 2_000)
+            for (var sheet = 0; sheet < 4; sheet++)
+                Require(cache.Get(1, now) == 0 && searches == 1, "Idle sheets must share a failed worker lookup.");
+        worker = 10;
+        Require(cache.Get(1, 30_000) == 10 && cache.Get(1, 32_000) == 10 && searches == 2,
+            "A successful lookup must be reused across idle ticks.");
+        worker = 11;
+        Require(cache.Get(1, 34_000) == 11 && searches == 3, "A destroyed worker must be replaced promptly.");
+        worker = 0;
+        Require(cache.Get(1, 36_000) == 0 && searches == 4, "A worker can disappear while Explorer is restarting.");
+        worker = 12;
+        Require(cache.Get(2, 36_001) == 12 && searches == 5, "A new Explorer must bypass the previous shell's retry delay.");
+        Console.WriteLine("PASS visible notes share a desktop worker and failed Explorer lookups; restarting Explorer clears the cache");
     }
 
     public static int CheckDesktop(string folder)
@@ -78,6 +100,45 @@ static class WindowsShellChecks
         finally { window.Close(); }
         Console.WriteLine("PASS real WPF window returns to the screen and stays at the recovered position");
         return 0;
+    }
+
+    public static int CheckTrayExit(string folder)
+    {
+        var seed = !Directory.Exists(folder);
+        using var desk = new DeskController(folder);
+        if (seed)
+        {
+            var stack = new DesktopStack(Guid.NewGuid(), "Synthetic stack", 100, 120, 300, 310, Guid.Empty);
+            desk.Store.SaveStack(stack);
+            Save("Loose", null);
+            Save("Top", stack.Id);
+            Save("Underneath", stack.Id);
+            Save("Hide explicitly", null);
+        }
+
+        desk.Start();
+        var app = Application.Current;
+        var windows = app.Windows.OfType<StickyWindow>().Where(window => window.IsVisible).ToArray();
+        Require(windows.Length == (seed ? 3 : 2), "Start in the tray must restore the loose sheet and stack.");
+        if (seed)
+        {
+            var hidden = desk.Store.All().Single(row => row.Note.Title == "Hide explicitly").Note.Id;
+            windows.Single(window => window.NoteId == hidden).Close();
+        }
+        app.Dispatcher.BeginInvoke((Action)desk.Exit);
+        app.Run();
+        var placements = desk.Store.All().ToDictionary(row => row.Note.Title, row => desk.Store.GetPlacement(row.Note.Id).Visible);
+        Require(placements.Count == 4 && placements["Loose"] && placements["Top"] && placements["Underneath"] &&
+            !placements["Hide explicitly"], "Exiting from the tray must preserve desktop placement and respect explicitly hidden notes.");
+        Console.WriteLine("PASS tray exit preserves the loose sheet, stack and explicitly hidden note");
+        return 0;
+
+        void Save(string title, Guid? stackId)
+        {
+            var note = new Note { Title = title, Body = "Synthetic note" };
+            desk.Store.Save(note);
+            desk.Store.SavePlacement(new Placement { NoteId = note.Id, StackId = stackId, Visible = true });
+        }
     }
 
     private static string RegisterFreeShortcut(HotkeyHost host)

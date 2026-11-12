@@ -225,7 +225,8 @@ public partial class StickyWindow : Window
         raisedAt = Environment.TickCount64;
         ApplyLayer();
     }
-    public void CloseFromController() { controllerClose = true; Close(); }
+    internal void PreservePlacementOnClose() => controllerClose = true;
+    public void CloseFromController() { PreservePlacementOnClose(); Close(); }
     private void ApplyLayout()
     {
         var compact=StickyLayout.IsCompact(Width,Height);

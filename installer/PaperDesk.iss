@@ -50,7 +50,7 @@ english.UpdateStartupFailed=PaperDesk could not update its automatic startup com
 russian.UpdateStartupFailed=PaperDesk не удалось обновить команду автозапуска.
 
 [Files]
-Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs notimestamp
+Source: "{#BuildDir}\*"; DestDir: "{app}"; Excludes: "PaperDesk.portable.txt"; Flags: ignoreversion recursesubdirs createallsubdirs notimestamp
 Source: "PaperDesk.installed.txt"; DestDir: "{app}"; Flags: ignoreversion notimestamp
 
 [Icons]
@@ -58,11 +58,21 @@ Name: "{autoprograms}\PaperDesk"; Filename: "{app}\PaperDesk.exe"; WorkingDir: "
 Name: "{autodesktop}\PaperDesk"; Filename: "{app}\PaperDesk.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\PaperDesk.exe"; Description: "{cm:LaunchProgram,PaperDesk}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\PaperDesk.exe"; Parameters: "{code:LaunchParameters}"; Description: "{cm:LaunchProgram,PaperDesk}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
+
+function LaunchParameters(Unused: String): String;
+var Profile: String;
+begin
+  Result := '';
+  Profile := ExpandConstant('{param:PaperDeskData|}');
+  if (Profile = '') or (Pos('"', Profile) > 0) then Exit;
+  if Profile[Length(Profile)] = '\' then Profile := Profile + '\';
+  Result := '--data "' + Profile + '"';
+end;
 
 procedure CurStepChanged(Step: TSetupStep);
 var Command, Executable, AdjacentData: String;

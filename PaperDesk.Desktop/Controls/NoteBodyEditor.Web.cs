@@ -25,6 +25,7 @@ public sealed partial class NoteBodyEditor
 
     internal void EnableWebEditor(DeskController desk, Action newNote, Action? search = null)
     {
+        if (desk.UseNativeEditor) return;
         webDesk = desk;
         webNewNote = newNote;
         webSearch = search;

@@ -58,7 +58,10 @@
             <StackPanel DockPanel.Dock="Bottom">
               <Button x:Name="DesktopStacksButton" Content="{paper:T Text='Стопки на столе ▾'}" Click="DesktopStacksClick" FontSize="12" HorizontalAlignment="Stretch" Margin="3,0,3,12" Padding="10,8" ToolTip="{paper:T Text='Показать выбранную стопку на рабочем столе'}"/>
               <TextBlock Text="{Binding Account}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedInk}" Margin="12,0,8,7"/>
-              <Button Content="{paper:T Text='⚙  Параметры'}" Click="SettingsClick" FontSize="12" HorizontalAlignment="Left" Padding="10,8" ToolTip="{paper:T Text='Параметры, аккаунт и синхронизация'}"/>
+              <StackPanel Orientation="Horizontal">
+                <Button Content="{paper:T Text='⚙  Параметры'}" Click="SettingsClick" FontSize="12" Padding="10,8" ToolTip="{paper:T Text='Параметры, аккаунт и синхронизация'}"/>
+                <Button x:Name="UpdateButton" Visibility="Collapsed" Click="DownloadUpdate" Style="{StaticResource AccentButton}" Width="34" Padding="0" Margin="2,3,0,3" Content="&#xE896;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+              </StackPanel>
             </StackPanel>
           </DockPanel>
         </Border>

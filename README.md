@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.7.0-rc"><strong>Download v0.7.0-rc</strong></a>
-  &nbsp;·&nbsp; <a href="#themes-and-paper">What's new</a>
+  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.8.0-beta"><strong>Download v0.8.0-beta</strong></a>
+  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.8.0-beta#whats-new">What's new</a>
   &nbsp;·&nbsp; <a href="#start-writing">Quick start</a>
 </p>
 
@@ -49,12 +49,12 @@ PaperDesk runs on Windows 10 build 19041 or newer and Windows 11 (x64). Both pac
 
 | Download | Open |
 | --- | --- |
-| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.7.0-rc/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
-| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.7.0-rc/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
+| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.8.0-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
+| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.8.0-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
 
 Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. Press **F1** in the manager for shortcuts and stack gestures.
 
-[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.7.0-rc/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
+[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.8.0-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
 
 ## Build from source
 

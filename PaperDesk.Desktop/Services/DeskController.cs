@@ -12,6 +12,7 @@ public sealed class DeskController : IDisposable
 {
     public string DataRoot { get; }
     public Settings Settings { get; private set; }
+    internal bool UseNativeEditor { get; }
     public NoteStore Store { get; private set; } = null!;
     public string Status { get; private set; } = L.T("Локальный режим");
     public string Account => L.T("На этом компьютере");
@@ -48,6 +49,7 @@ public sealed class DeskController : IDisposable
         var settingsPath = Path.Combine(root, "settings.json");
         var newProfile = !File.Exists(settingsPath) && !Directory.Exists(Path.Combine(root, "profiles"));
         Settings = File.Exists(settingsPath) ? Json.Read<Settings>(File.ReadAllText(settingsPath)) : new Settings();
+        UseNativeEditor = Settings.NativeEditor;
         ThemePalette.Apply(Settings.Theme);
         OpenStore(Guid.Empty);
         if (newProfile)
@@ -64,7 +66,7 @@ public sealed class DeskController : IDisposable
         tray.ContextMenuStrip.Items.Add(L.T("Показать все листики"), null, (_, _) => SetAllVisible(true));
         tray.ContextMenuStrip.Items.Add(L.T("Параметры"), null, (_, _) => ShowSettings());
         tray.ContextMenuStrip.Items.Add(new Forms.ToolStripSeparator());
-        tray.ContextMenuStrip.Items.Add(L.T("Выход"), null, (_, _) => Application.Current.Shutdown());
+        tray.ContextMenuStrip.Items.Add(L.T("Выход"), null, (_, _) => Exit());
         tray.DoubleClick += (_, _) => ShowManager();
         hotkey = new HotkeyHost(NewNote);
         summonHotkey = new HotkeyHost(SummonNotes);
@@ -678,6 +680,16 @@ public sealed class DeskController : IDisposable
         settingsWindow.Activate();
     }
     public void FlushWindows() { foreach (var w in stickies.Values.ToList()) w.Flush(); }
+    internal void PrepareForExit()
+    {
+        foreach (var window in stickies.Values) window.PreservePlacementOnClose();
+        revealedSheet?.PreservePlacementOnClose();
+    }
+    internal void Exit()
+    {
+        PrepareForExit();
+        Application.Current.Shutdown();
+    }
     private void CloseStickies()
     {
         dropTarget?.HighlightDrop(false);

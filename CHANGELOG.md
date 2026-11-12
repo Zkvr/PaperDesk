@@ -1,5 +1,12 @@
 # PaperDesk changelog
 
+## 0.8.0-beta
+
+- Restore open desktop notes and stacks after exiting PaperDesk from the tray and launching it again.
+- Reuse the Windows desktop layer across open sheets and limit retries when Explorer cannot provide it.
+- Add an optional lightweight editor that uses the built-in Windows controls after restarting PaperDesk.
+- Show compatible GitHub updates beside Settings. Installed copies open Setup and portable copies replace their program files and restart with the same data folder.
+
 ## 0.7.0-rc
 
 - The Windows app, installer, GitHub tag check and WinGet manifests use the same version.

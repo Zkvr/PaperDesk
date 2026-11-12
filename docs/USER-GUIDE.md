@@ -10,12 +10,15 @@ PaperDesk keeps sticky notes on your desktop. The Windows x64 packages include .
 
 Before updating, make a JSON backup and choose **Exit** from the PaperDesk tray icon. For an installed copy, run the newer installer into the current installation folder. For a portable copy, extract the new ZIP to a separate folder and copy the old `data` folder beside the new `PaperDesk.exe` while both copies are closed. Open the new copy and check that your notes are present.
 
+From v0.8.0-beta, an available update appears as a download button beside **Settings** in the manager. Click it to download and verify the package. An installed copy opens Setup. A portable copy replaces its program files and reopens the same data folder. Install v0.8.0-beta manually when moving from an earlier version.
+
 Remove the installed app through **Settings → Apps → Installed apps**. After reinstalling, PaperDesk opens the notes in your Windows profile. A portable copy keeps its notes in its own folder, so save a backup or copy `data` before deleting that folder.
 
 ## Use, back up and restore notes
 
 - **Ctrl+Alt+N** creates a desktop note. **Ctrl+Alt+Space** brings notes forward. In the manager, **Ctrl+F** searches notes and **F1** shows shortcuts and stack gestures.
 - Click the paper-colored dot on a note to change its look. Open **Settings → Appearance** to switch the app theme.
+- For the built-in editor, enable **Lightweight editor (after restart)** in **Settings**, save, then exit from the tray and reopen PaperDesk.
 - In the manager, choose **File → Export a backup…** and save a **JSON backup**. It includes notes, attachments, archive and trash, stacks, and per-note appearance. Markdown is available as a reading copy of the text.
 - To restore, open **File → Import notes…** and select the JSON backup. On a populated profile, a note with a matching ID is imported as a separate copy. An empty profile is appropriate for restoring a whole library.
 - To preserve application-wide settings along with notes, exit PaperDesk from the tray and copy the entire `data` folder. **Settings** shows the active path. For a full restore, exit PaperDesk and place the copied folder at that path. Keep a copy of the current folder until the restored notes open correctly.

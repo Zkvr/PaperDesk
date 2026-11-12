@@ -15,6 +15,17 @@ public partial class App : Application
         string? localAppData = null;
         DispatcherUnhandledException += (_, args) =>
             ErrorLog.Write(dataRoot, ErrorLog.Area.Dispatcher, args.Exception, localAppData);
+        if (e.Args is [PortableUpdate.ApplyArgument, var job])
+        {
+            try { PortableUpdate.Apply(job); Shutdown(); }
+            catch (Exception error)
+            {
+                ErrorLog.Write(null, ErrorLog.Area.Update, error, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+                MessageBox.Show(L.T("Не удалось применить обновление PaperDesk."), "PaperDesk", MessageBoxButton.OK, MessageBoxImage.Error);
+                Shutdown(1);
+            }
+            return;
+        }
         try
         {
             localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -35,8 +46,14 @@ public partial class App : Application
         {
             ErrorLog.Write(dataRoot, ErrorLog.Area.Startup, ex, localAppData);
             MessageBox.Show(L.T("Не удалось открыть данные. Исходные файлы не изменены.\n\n") + ex.Message, "PaperDesk");
+            Controller?.PrepareForExit();
             Shutdown(1);
         }
+    }
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        base.OnSessionEnding(e);
+        if (!e.Cancel) Controller?.PrepareForExit();
     }
     protected override void OnExit(ExitEventArgs e)
     {

@@ -20,13 +20,15 @@ internal static class ProfileStorage
         }
 
         var adjacent = Path.Combine(appDirectory, "data");
-        if (!Exists(Path.Combine(appDirectory, InstalledMarker), directory: false))
+        if (!IsInstalled(appDirectory))
             return (adjacent, null);
         if (!Path.IsPathFullyQualified(localAppData))
             throw new IOException(L.T("Не найдена папка LocalAppData."));
         var installed = Path.Combine(localAppData, "PaperDesk", "data");
         return (installed, SamePath(adjacent, installed) ? null : adjacent);
     }
+
+    internal static bool IsInstalled(string appDirectory) => Exists(Path.Combine(appDirectory, InstalledMarker), directory: false);
 
     internal static string Key(string root) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root.ToLowerInvariant())))[..20];

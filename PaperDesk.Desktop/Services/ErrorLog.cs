@@ -2,7 +2,7 @@ namespace PaperDesk.Desktop.Services;
 
 internal static class ErrorLog
 {
-    internal enum Area { Startup, Dispatcher, Import, Export }
+    internal enum Area { Startup, Dispatcher, Import, Export, Update }
     private const long MaxBytes = 128 * 1024;
     private static readonly object Gate = new();
 

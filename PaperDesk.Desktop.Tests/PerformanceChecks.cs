@@ -4,8 +4,11 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using PaperDesk.Core;
+using PaperDesk.Desktop.Controls;
 using PaperDesk.Desktop.Services;
 using PaperDesk.Desktop.ViewModels;
 using PaperDesk.Desktop.Views;
@@ -114,6 +117,63 @@ static class PerformanceChecks
         }
         finally { manager.Close(); }
         Console.WriteLine("PASS grouped grid and list virtualize, reach the last card and select unrealized cards");
+        return 0;
+    }
+
+    public static int MeasureIdleRender(string folder, bool web, bool software)
+    {
+        if (software) RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        using var desk = new DeskController(Path.Combine(folder, Guid.NewGuid().ToString("N")));
+        using var process = Process.GetCurrentProcess();
+        var app = Application.Current;
+        var sheets = new List<StickyWindow>();
+        var editors = new List<NoteBodyEditor>();
+        for (var index = 0; index < 2; index++)
+        {
+            var note = new Note { Title = $"Synthetic note {index + 1}", Body = "- [ ] Check a detail\n- [x] Save the notes\n\n" +
+                string.Concat(Enumerable.Repeat("A quiet sheet with formatted text.\n", 8)) };
+            desk.Store.Save(note);
+            desk.Store.SavePlacement(new Placement { NoteId = note.Id, StackId = null, Visible = true, X = 100 + index * 345, Y = 100 });
+            var sheet = new StickyWindow(desk, note.Id) { ShowActivated = false };
+            var editor = (NoteBodyEditor)sheet.FindName("BodyBox");
+            if (web) editor.EnableWebEditor(desk, () => { });
+            sheets.Add(sheet);
+            editors.Add(editor);
+            sheet.Show();
+        }
+
+        Exception? failure = null;
+        app.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)(async () =>
+        {
+            try
+            {
+                var startup = Stopwatch.StartNew();
+                while (web && editors.Any(editor => !editor.IsWebActive) && startup.Elapsed < TimeSpan.FromSeconds(18))
+                    await Task.Delay(100);
+                if (web && editors.Any(editor => !editor.IsWebActive)) throw new InvalidOperationException("WebView2 failed to start for the idle sample.");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                var before = process.TotalProcessorTime;
+                var timer = Stopwatch.StartNew();
+                await Task.Delay(TimeSpan.FromSeconds(15));
+                var cpu = process.TotalProcessorTime - before;
+                Console.WriteLine(JsonSerializer.Serialize(new
+                {
+                    SoftwareRendering = software,
+                    WebEditor = web,
+                    GpuTier = RenderCapability.Tier >> 16,
+                    Notes = sheets.Count,
+                    HostPercentOfOneCore = Math.Round(100 * cpu.TotalMilliseconds / timer.Elapsed.TotalMilliseconds, 3)
+                }));
+            }
+            catch (Exception error) { failure = error; }
+            finally
+            {
+                foreach (var sheet in sheets) sheet.CloseFromController();
+                app.Shutdown();
+            }
+        }));
+        app.Run();
+        if (failure != null) throw new InvalidOperationException("Idle sample failed.", failure);
         return 0;
     }
 }

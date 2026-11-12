@@ -11,6 +11,8 @@ public sealed class SettingsWindow : Window
     private readonly TextBox shortcut, summonShortcut;
     private readonly CheckBox desktop = new() { Content = L.T("Слой рабочего стола (экспериментальный)"), Margin = new Thickness(0, 14, 0, 10) };
     private readonly CheckBox animations = new() { Content = L.T("Анимации листиков"), Margin = new Thickness(0, 0, 0, 10) };
+    private readonly CheckBox nativeEditor = new() { Content = L.T("Лёгкий редактор (после перезапуска)"), Margin = new Thickness(0, 14, 0, 0),
+        ToolTip = L.T("Открывать заметки во встроенном редакторе Windows без WebView2.") };
     private readonly CheckBox snapNotes = new() { Content = L.T("Привязывать листики к соседним краям"), Margin = new Thickness(0, 0, 0, 10) };
     private readonly CheckBox stacked = new() { Content = L.T("Показывать листики стопками"), Margin = new Thickness(0, 12, 0, 10) };
     private readonly CheckBox startup = new() { Content = L.T("Запускать при входе в Windows"), Margin = new Thickness(0, 0, 0, 10) };
@@ -44,6 +46,8 @@ public sealed class SettingsWindow : Window
         panel.Children.Add(trayStartup); panel.Children.Add(noteStartup);
         stacked.IsChecked=desk.Settings.StackedNotes; panel.Children.Add(stacked);
         panel.Children.Add(new TextBlock { Text = L.T("Если Explorer не поддерживает слой рабочего стола, используются обычные окна. Закрытые листики остаются в менеджере."), FontSize = 11, TextWrapping = TextWrapping.Wrap });
+        nativeEditor.IsChecked = desk.Settings.NativeEditor;
+        panel.Children.Add(nativeEditor);
         var save = new Button { Content = L.T("Сохранить параметры"), Margin = new Thickness(0, 18, 0, 8) }; panel.Children.Add(save);
         save.Click += (_, _) =>
         {
@@ -52,7 +56,8 @@ public sealed class SettingsWindow : Window
                 desk.UpdateSettings(desk.Settings with
                 {
                     Hotkey = shortcut.Text, SummonHotkey = summonShortcut.Text, DesktopLayer = desktop.IsChecked == true,
-                    Animations = animations.IsChecked == true, SnapNotes = snapNotes.IsChecked == true, AutoStart = startup.IsChecked == true,
+                    Animations = animations.IsChecked == true, NativeEditor = nativeEditor.IsChecked == true,
+                    SnapNotes = snapNotes.IsChecked == true, AutoStart = startup.IsChecked == true,
                     StartInTray = trayStartup.IsChecked == true, ShowNotesAtStartup = noteStartup.IsChecked == true, StackedNotes = stacked.IsChecked == true
                 });
                 message.Text = L.T("Параметры сохранены.");

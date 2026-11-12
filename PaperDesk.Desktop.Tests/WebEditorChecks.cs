@@ -21,12 +21,12 @@ using PaperDesk.Desktop.Views;
 
 static class WebEditorChecks
 {
-    public static int Run(string folder, bool withoutRuntime = false)
+    public static int Run(string folder, bool withoutRuntime = false, bool preferNative = false)
     {
         Trace.Listeners.Add(new ConsoleTraceListener());
         if (withoutRuntime)
             Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", Path.GetFullPath(Path.Combine(folder, "missing-runtime")));
-        return RunOnDispatcher(() => Check(folder, withoutRuntime));
+        return RunOnDispatcher(() => Check(folder, withoutRuntime, preferNative));
     }
 
     public static int RunLifetime(string folder)
@@ -101,11 +101,11 @@ static class WebEditorChecks
         }
     }
 
-    private static async Task Check(string folder, bool withoutRuntime)
+    private static async Task Check(string folder, bool withoutRuntime, bool preferNative)
     {
         var profile = Path.Combine(folder, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(profile);
-        File.WriteAllText(Path.Combine(profile, "settings.json"), Json.Write(new Settings { Animations = true }));
+        File.WriteAllText(Path.Combine(profile, "settings.json"), Json.Write(new Settings { Animations = true, NativeEditor = preferNative }));
         using var desk = new DeskController(profile);
         var note = new Note { Title = "WebView smoke", Body = "Before\n\nAfter\n\n- [ ] Task\n\n:::spoiler Details\nSecret\n:::\n\n| Head | Name |\n| --- | --- |\n| One | Two |" };
         desk.Store.Save(note);
@@ -128,12 +128,12 @@ static class WebEditorChecks
         {
             var cards = (ListBox)manager.FindName("Cards");
             cards.SelectedItem = cards.Items.OfType<NoteCard>().Single();
-            if (withoutRuntime)
+            if (withoutRuntime || preferNative)
             {
                 await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                 await Until(() => Task.FromResult(new[] { managerBody, stickyBody }.All(body =>
                     !body.IsWebActive && ((Grid)body.Content).Children.OfType<WebView2CompositionControl>().Count() == 0)),
-                    "both editors must recover from missing WebView2");
+                    "both views must use the native editor without a WebView2 control");
                 managerBody.BeginEdit();
                 Require(managerBody.IsEditing && managerBody.Text.Contains("Task") && stickyBody.Text.Contains("Secret"),
                     "the native editor must load the existing note and accept editing");
@@ -155,7 +155,8 @@ static class WebEditorChecks
                 line.Redo();
                 Require(desk.Store.Find(note.Id)!.Note.Body == after,
                     "native redo must restore the typed edit");
-                Console.WriteLine("PASS manager and sticky fall back to editable WPF when WebView2 is unavailable");
+                Console.WriteLine(preferNative ? "PASS the lightweight editor setting opens editable WPF in both windows" :
+                    "PASS manager and sticky fall back to editable WPF when WebView2 is unavailable");
                 return;
             }
             var wide = await Browser(managerBody);

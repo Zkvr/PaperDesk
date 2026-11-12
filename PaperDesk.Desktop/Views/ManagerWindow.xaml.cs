@@ -28,6 +28,7 @@ public partial class ManagerWindow : Window
         EditBody.ConnectFormatMenu(FormatButton, EditorPaper);
         EditorPictures.ConnectDrop(EditorPaper, EditBody);
         if (Application.Current is App) EditBody.EnableWebEditor(desk, CreateNote, FocusSearch);
+        ConfigureUpdates();
         desk.Changed += Refresh;
         Closed += (_, _) => { if (appearance != null) appearance.IsOpen = false; EditorCrumple.Cancel(); desk.Changed -= Refresh; };
         UpdateGrouping();
