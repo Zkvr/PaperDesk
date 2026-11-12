@@ -25,7 +25,7 @@ public partial class ManagerWindow : Window
         EditBody.ConnectTitle(EditTitle);
         EditBody.ConnectFormatMenu(FormatButton, EditorPaper);
         EditorPictures.ConnectDrop(EditorPaper, EditBody);
-        if (Application.Current is App) EditBody.EnableWebEditor(desk, CreateNote);
+        if (Application.Current is App) EditBody.EnableWebEditor(desk, CreateNote, FocusSearch);
         desk.Changed += Refresh;
         Closed += (_, _) => { EditorCrumple.Cancel(); desk.Changed -= Refresh; };
         UpdateGrouping();
@@ -53,6 +53,8 @@ public partial class ManagerWindow : Window
         DesktopStacksButton.Visibility = vm.HasDesktopStacks ? Visibility.Visible : Visibility.Collapsed;
         ConflictsSection.Visibility = vm.HasConflicts ? Visibility.Visible : Visibility.Collapsed;
         EmptyState.Visibility = vm.Notes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        WelcomePanel.Visibility = desk.Settings.WelcomePending && vm.AllCount + vm.ArchiveCount + vm.TrashCount == 0
+            ? Visibility.Visible : Visibility.Collapsed;
         EmptyTitle.Text = !string.IsNullOrWhiteSpace(vm.Search) ? L.T("Ничего не найдено") : vm.Filter == "all" ? L.T("Пока нет заметок") : L.T("Здесь пока пусто");
         EmptyHint.Text = !string.IsNullOrWhiteSpace(vm.Search) ? L.T("Измените запрос или выберите другой раздел.")
             : vm.Filter == "all" ? L.T("Нажмите «Новый листик», чтобы начать.") : L.T("Заметки появятся здесь, когда вы добавите их в этот раздел.");
@@ -64,7 +66,6 @@ public partial class ManagerWindow : Window
         if (EditorCrumple?.IsPlaying == true) return;
         var row = selected.HasValue ? desk.Store.Find(selected.Value) : null; loading = true;
         UpdateEditorWidth(row != null);
-        if (row != null) EditorPaper.Fill = PaperPalette.Brush(desk.Store.GetPlacement(row.Note.Id).Color);
         if (EditTitle.Text != (row?.Note.Title ?? "")) EditTitle.Text = row?.Note.Title ?? "";
         if (EditBody.Text != (row?.Note.Body ?? "")) { var pos = EditBody.CaretIndex; EditBody.Text = row?.Note.Body ?? ""; EditBody.CaretIndex = Math.Min(pos, EditBody.Text.Length); }
         shownTitle = EditTitle.Text;
@@ -76,6 +77,10 @@ public partial class ManagerWindow : Window
         if (row != null)
         {
             var placement = desk.Store.GetPlacement(row.Note.Id);
+            EditorPaper.Fill = PaperPalette.Brush(placement.Color);
+            EditBody.FontFamily = new FontFamily(placement.Font);
+            EditBody.FontSize = Math.Clamp(placement.FontSize, 12, 32);
+            EditBody.QueueWebSync();
             var active = row.Note.ArchivedAt == null && row.Note.DeletedAt == null;
             var onDesktop = active && desk.IsOnDesktop(placement);
             PreviewState.Text = row.Note.DeletedAt != null ? L.T("В корзине") : row.Note.ArchivedAt != null ? L.T("В архиве") :
@@ -115,6 +120,9 @@ public partial class ManagerWindow : Window
         SelectionCount.Text = L.F("Выбрано: {0}", ids.Length);
         BulkStack.Visibility = desk.Settings.StackedNotes && all.Any(n => n.ArchivedAt == null && n.DeletedAt == null)
             ? Visibility.Visible : Visibility.Collapsed;
+        BulkUnstack.Visibility = BulkStack.Visibility == Visibility.Visible &&
+            all.Any(note => note is { ArchivedAt: null, DeletedAt: null } && desk.Store.GetPlacement(note.Id).StackId.HasValue)
+            ? Visibility.Visible : Visibility.Collapsed;
         BulkArchive.Visibility = all.Any(n => n.ArchivedAt == null && n.DeletedAt == null) ? Visibility.Visible : Visibility.Collapsed;
         BulkTrash.Visibility = all.Any(n => n.DeletedAt == null) ? Visibility.Visible : Visibility.Collapsed;
         BulkRestore.Visibility = all.Any(n => n.ArchivedAt != null || n.DeletedAt != null) ? Visibility.Visible : Visibility.Collapsed;
@@ -136,6 +144,7 @@ public partial class ManagerWindow : Window
     }
     private void SelectAllClick(object sender, RoutedEventArgs e) => Cards.SelectAll();
     private void AssignStackClick(object sender, RoutedEventArgs e) => StackMenu.Assign(desk, (FrameworkElement)sender, SelectedIds());
+    private void ExtractStackClick(object sender, RoutedEventArgs e) => desk.ExtractFromStack(SelectedIds());
     private void DesktopStacksClick(object sender, RoutedEventArgs e) => StackMenu.Show(desk, (FrameworkElement)sender);
     private void BulkArchiveClick(object sender, RoutedEventArgs e) => ApplyBulk("archive");
     private void BulkTrashClick(object sender, RoutedEventArgs e) => ApplyBulk("trash");
@@ -172,8 +181,25 @@ public partial class ManagerWindow : Window
 
     private void ManagerKeyDown(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers == ModifierKeys.None)
+        {
+            if (e.Key == Key.F1) { ShowHelp(); e.Handled = true; return; }
+            if (!Cards.IsKeyboardFocusWithin) return;
+            if (e.Key == Key.Enter && Cards.SelectedItem is NoteCard && !selecting && Cards.SelectedItems.Count == 1)
+            {
+                EditTitle.Focus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Delete && vm.Filter != "trash" && Cards.SelectedItems.Count != 0)
+            {
+                ApplyBulk("trash");
+                e.Handled = true;
+            }
+            return;
+        }
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         if (e.Key == Key.N) { CreateNote(); e.Handled = true; return; }
+        if (e.Key == Key.F) { FocusSearch(); e.Handled = true; return; }
         if (e.Key != Key.V || AddImagesButton.Visibility != Visibility.Visible ||
             !(EditorPaper.IsKeyboardFocusWithin || Cards.IsKeyboardFocusWithin)) return;
         e.Handled = EditorPictures.Paste();
@@ -247,11 +273,35 @@ public partial class ManagerWindow : Window
     private void MaximizeClick(object sender, RoutedEventArgs e) { if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this); else SystemCommands.MaximizeWindow(this); }
     private void CloseClick(object sender, RoutedEventArgs e) => Close();
     private void SearchChanged(object sender, TextChangedEventArgs e) { if (vm != null) { vm.Search = SearchBox.Text; Refresh(); } }
+    internal void FocusSearch() { SearchBox.Focus(); SearchBox.SelectAll(); }
+    private void SearchKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.None) return;
+        if (e.Key == Key.Escape && SearchBox.Text.Length != 0) { SearchBox.Clear(); e.Handled = true; return; }
+        if (e.Key is not (Key.Enter or Key.Down) || Cards.Items.Count == 0 ||
+            Cards.Items[0] is not NoteCard result) return;
+        SetSelecting(false);
+        Cards.SelectedItem = result;
+        Cards.ScrollIntoView(result);
+        if (e.Key == Key.Enter) EditTitle.Focus();
+        else
+        {
+            Cards.UpdateLayout();
+            if (Cards.ItemContainerGenerator.ContainerFromItem(result) is ListBoxItem container) container.Focus();
+            else Cards.Focus();
+        }
+        e.Handled = true;
+    }
     private void SortChanged(object sender, SelectionChangedEventArgs e) { if (vm != null && Cards != null) { vm.Sort = SortBox.SelectedIndex; Refresh(); } }
     private void NewClick(object sender, RoutedEventArgs e) => CreateNote();
     private void CreateNote()
     {
         var id = desk.CreateNote();
+        desk.DismissWelcome();
+        OpenNote(id);
+    }
+    private void OpenNote(Guid id)
+    {
         AllNotesSection.IsChecked = true;
         SetSection("all");
         if (SearchBox.Text.Length > 0) SearchBox.Clear();
@@ -261,6 +311,21 @@ public partial class ManagerWindow : Window
         Cards.ScrollIntoView(note);
         EditTitle.Focus();
     }
+    private void ExampleClick(object sender, RoutedEventArgs e)
+    {
+        if (desk.CreateWelcomeExample() is Guid id) OpenNote(id);
+    }
+    private void DismissWelcomeClick(object sender, RoutedEventArgs e)
+    {
+        desk.DismissWelcome();
+        Refresh();
+    }
+    private void HelpClick(object sender, RoutedEventArgs e) => ShowHelp();
+    private void ShowHelp() => MessageBox.Show(this,
+        L.T("Верхняя ручка перемещает заметку или стопку. Перетащите её на другую заметку, чтобы собрать стопку. Потяните нижнюю ручку, чтобы отделить один листик.") +
+        "\n\n" + L.T("Ctrl+N — новый листик в менеджере\nCtrl+F — поиск, Enter — открыть результат\nDelete — отправить выбранное в корзину\nCtrl+Page Up / Page Down — сменить листик в открытой стопке\nCtrl+Shift+F — форматирование при редактировании") +
+        "\n\n" + L.F("{0} — новый листик на столе\n{1} — показать листики поверх окон", desk.Settings.Hotkey, desk.Settings.SummonHotkey),
+        L.T("Горячие клавиши и жесты"), MessageBoxButton.OK);
     private void SettingsClick(object sender, RoutedEventArgs e) => desk.ShowSettings();
     private void ShowClick(object sender, RoutedEventArgs e) { if (selected.HasValue) desk.ShowSticky(selected.Value); }
     private void HideClick(object sender, RoutedEventArgs e) { if (selected.HasValue) desk.HideSticky(selected.Value); }
@@ -298,21 +363,59 @@ public partial class ManagerWindow : Window
     }
     private void NoteMenuClick(object sender, RoutedEventArgs e)
     {
-        if (selected is not Guid id || desk.Store.Find(id)?.Note is not { } note) return;
+        var store = desk.Store;
+        if (selected is not Guid id || store.Find(id)?.Note is not { } note) return;
+        var button = (Button)sender;
         var actions = new List<(string, RoutedEventHandler)>();
         if (note.DeletedAt != null)
         {
             actions.Add((L.T("Удалить навсегда"), PurgeClick));
-            OpenMenu((Button)sender, actions);
+            OpenMenu(button, actions);
             return;
         }
+        actions.Add((L.T("Дублировать заметку"), (_, _) =>
+        {
+            if (!ReferenceEquals(store, desk.Store)) return;
+            desk.FlushWindows();
+            if (store.Duplicate(id) is Guid copy) OpenNote(copy);
+        }));
+        actions.Add((L.T("Размер текста…"), (_, _) =>
+        {
+            if (ReferenceEquals(store, desk.Store)) OpenTextSize(button, id);
+        }));
         if (note.ArchivedAt == null)
         {
-            if (desk.Store.GetPlacement(id).Visible) actions.Add((L.T("Скрыть со стола"), HideClick));
+            var placement = desk.Store.GetPlacement(id);
+            if (desk.Settings.StackedNotes)
+            {
+                actions.Add((L.T("В стопку…"), (_, _) =>
+                {
+                    if (ReferenceEquals(store, desk.Store)) StackMenu.Assign(desk, button, [id]);
+                }));
+                if (placement.StackId.HasValue)
+                    actions.Add((L.T("Извлечь из стопки"), (_, _) =>
+                    {
+                        if (ReferenceEquals(store, desk.Store)) desk.ExtractFromStack([id]);
+                    }));
+            }
+            if (placement.Visible) actions.Add((L.T("Скрыть со стола"), HideClick));
             actions.Add((L.T("В архив"), ArchiveClick));
         }
         actions.Add((L.T("В корзину"), TrashClick));
-        OpenMenu((Button)sender, actions);
+        OpenMenu(button, actions);
+    }
+    private void OpenTextSize(Button button, Guid id)
+    {
+        var store = desk.Store;
+        var current = store.GetPlacement(id).FontSize;
+        var sizes = new[] { 12, 14, 17, 20, 24, 28, 32 };
+        OpenMenu(button, sizes.Select(size =>
+            ((current == size ? "✓  " : "") + size.ToString(), (RoutedEventHandler)((_, _) =>
+            {
+                if (!ReferenceEquals(store, desk.Store) || store.Find(id) == null) return;
+                store.SavePlacement(store.GetPlacement(id) with { FontSize = size });
+                LoadEditor();
+            }))));
     }
     private static void OpenMenu(Button button, IEnumerable<(string Label, RoutedEventHandler Handler)> actions)
     {

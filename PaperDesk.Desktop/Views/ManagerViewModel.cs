@@ -81,7 +81,10 @@ public sealed class ManagerViewModel : INotifyPropertyChanged
             2 => rows.OrderByDescending(item => item.Row.Note.CreatedAt),
             _ => rows.OrderByDescending(item => item.Row.Note.UpdatedAt)
         };
-        if (Filter == "all") rows = rows.OrderByDescending(item => item.OnDesktop);
+        if (Filter == "all")
+            rows = rows.OrderByDescending(item => item.OnDesktop).ThenByDescending(item => item.Placement.Favorite);
+        else if (Filter is "visible" or "hidden")
+            rows = rows.OrderByDescending(item => item.Placement.Favorite);
         var cards = rows.Select(item =>
         {
             var (row, p, _, onDesktop) = item;

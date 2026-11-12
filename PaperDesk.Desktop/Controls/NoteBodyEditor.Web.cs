@@ -19,13 +19,15 @@ public sealed partial class NoteBodyEditor
     private readonly List<WebDocument> webDocuments = [];
     private DeskController? webDesk;
     private Action? webNewNote;
+    private Action? webSearch;
     private bool webQueued, webUnavailable;
     internal bool IsWebActive { get; private set; }
 
-    internal void EnableWebEditor(DeskController desk, Action newNote)
+    internal void EnableWebEditor(DeskController desk, Action newNote, Action? search = null)
     {
         webDesk = desk;
         webNewNote = newNote;
+        webSearch = search;
         Loaded += (_, _) => QueueWebSync();
         IsVisibleChanged += (_, _) => QueueWebSync();
         Unloaded += (_, _) => DisposeWebEditor();
@@ -201,7 +203,7 @@ public sealed partial class NoteBodyEditor
     {
         type = "load", revision = document.Revision, body = document.Body,
         images = document.Store.ImageLayouts(document.Id).Select(picture => WebPicture.From(picture.Id, picture.Layout)).ToArray(),
-        editable, font = FontFamily.Source, fontSize = FontSize,
+        editable, font = FontFamily.Source, fontSize = FontSize, canSearch = webSearch != null,
         russian = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru"
     }, WebJson);
 
@@ -256,6 +258,7 @@ public sealed partial class NoteBodyEditor
             case "formatMenu" when editable: OpenWebFormatMenu(current, message.InTable); break;
             case "title": titleBox?.Focus(); break;
             case "newNote": webNewNote?.Invoke(); break;
+            case "search": webSearch?.Invoke(); break;
             case "image" when message.Id is Guid image:
                 pictures.WebPicture(image, message.Action ?? "");
                 break;

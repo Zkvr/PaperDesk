@@ -33,6 +33,12 @@ public static class StickyTools
             var row=new Grid{Width=180};row.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(25)});row.ColumnDefinitions.Add(new ColumnDefinition());row.Children.Add(new TextBlock{Text=glyph,FontFamily=new FontFamily("Segoe MDL2 Assets"),FontSize=13,VerticalAlignment=VerticalAlignment.Center,Foreground=danger?new SolidColorBrush(Color.FromRgb(225,167,167)):(Brush)Application.Current.FindResource("MutedInk")});var caption=new TextBlock{Text=label,FontSize=12,VerticalAlignment=VerticalAlignment.Center,Foreground=danger?new SolidColorBrush(Color.FromRgb(225,167,167)):(Brush)Application.Current.FindResource("Ink")};Grid.SetColumn(caption,1);row.Children.Add(caption);var b=new Button{Content=row,Padding=new Thickness(10,9,10,9),Margin=new Thickness(0,1,0,1)};b.Click+=(_,_)=>{popup.IsOpen=false;action();};System.Windows.Automation.AutomationProperties.SetName(b,label);panel.Children.Add(b);return b;
         }
         Action("\uE80A",L.T("Открыть менеджер"),desk.ShowManager);
+        if (desk.Settings.StackedNotes)
+        {
+            Action("\uE7B8", L.T("В стопку…"), () => StackMenu.Assign(desk, target, [id]));
+            if (desk.SurfaceStack(id).HasValue)
+                Action("\uE8A7", L.T("Извлечь из стопки"), () => desk.ExtractFromStack([id]));
+        }
         if (desk.SurfaceStack(id) is Guid group && (group != Guid.Empty || desk.StackNotes(group).Count > 1))
             Action("\uE8BB", L.T("Закрыть стопку"), () => desk.CloseStack(group));
         Action("\uE7B8",L.T("В архив"),()=>desk.ChangeState(id,"archive"));

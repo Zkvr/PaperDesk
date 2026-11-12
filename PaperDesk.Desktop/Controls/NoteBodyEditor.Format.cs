@@ -40,6 +40,7 @@ public sealed partial class NoteBodyEditor
         }
         foreach (var (kind, label, glyph) in Formats)
         {
+            if (kind is NoteFormat.Kind.Heading or NoteFormat.Kind.Spoiler) menu.Items.Add(new Separator());
             var item = FormatItem(label, glyph);
             item.IsEnabled = table == null || NoteFormat.InlineStyle(kind) != PaperInline.Style.Plain;
             item.Click += (_, _) => Dispatcher.BeginInvoke(() =>
@@ -56,22 +57,26 @@ public sealed partial class NoteBodyEditor
     private void OpenWebFormatMenu(WebDocument document, bool inTable)
     {
         if (CreateFormatMenu() is not { } menu) return;
-        foreach (var (kind, label, glyph) in Formats)
-            Add(label, glyph, kind.ToString());
         if (inTable)
         {
-            menu.Items.Add(new Separator());
             Add("Добавить строку ниже", "+↓", nameof(TableAction.AddRow));
             Add("Добавить столбец справа", "+→", nameof(TableAction.AddColumn));
             Add("Удалить строку", "−↓", nameof(TableAction.RemoveRow));
             Add("Удалить столбец", "−→", nameof(TableAction.RemoveColumn));
             Add("Удалить таблицу", "×", nameof(TableAction.RemoveTable));
+            menu.Items.Add(new Separator());
+        }
+        foreach (var (kind, label, glyph) in Formats)
+        {
+            if (kind is NoteFormat.Kind.Heading or NoteFormat.Kind.Spoiler) menu.Items.Add(new Separator());
+            Add(label, glyph, kind.ToString(), !inTable || NoteFormat.InlineStyle(kind) != PaperInline.Style.Plain);
         }
         menu.IsOpen = true;
 
-        void Add(string label, string glyph, string action)
+        void Add(string label, string glyph, string action, bool enabled = true)
         {
             var item = FormatItem(label, glyph);
+            item.IsEnabled = enabled;
             item.Click += (_, _) => Dispatcher.BeginInvoke(() =>
             {
                 if (formatMenu != menu || !IsVisible || !IsEnabled ||

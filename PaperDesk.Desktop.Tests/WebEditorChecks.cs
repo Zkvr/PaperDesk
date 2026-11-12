@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -118,7 +119,7 @@ static class WebEditorChecks
         var sticky = new StickyWindow(desk, note.Id, false) { Width = 260, Height = 275, ShowActivated = false };
         var managerBody = (NoteBodyEditor)manager.FindName("EditBody");
         var stickyBody = (NoteBodyEditor)sticky.FindName("BodyBox");
-        managerBody.EnableWebEditor(desk, () => { });
+        managerBody.EnableWebEditor(desk, () => { }, manager.FocusSearch);
         stickyBody.EnableWebEditor(desk, () => { });
         desk.Changed += RefreshSticky;
         manager.Show();
@@ -136,6 +137,24 @@ static class WebEditorChecks
                 managerBody.BeginEdit();
                 Require(managerBody.IsEditing && managerBody.Text.Contains("Task") && stickyBody.Text.Contains("Secret"),
                     "the native editor must load the existing note and accept editing");
+                var line = UiChecks.Descendants(managerBody).OfType<PaperLineInput>().Single();
+                var before = desk.Store.Find(note.Id)!.Note.Body;
+                manager.Activate();
+                line.Focus();
+                line.Select(line.Text.Length, 0);
+                TextCompositionManager.StartComposition(new TextComposition(InputManager.Current, line, "!"));
+                await Until(() => Task.FromResult(desk.Store.Find(note.Id)!.Note.Body != before),
+                    "typing in the native editor must persist immediately");
+                var after = desk.Store.Find(note.Id)!.Note.Body;
+                Require(after.Contains('!'), "typing in the native editor must persist immediately");
+                await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                Require(line.CanUndo, $"Native input must add an undo unit (enabled: {line.IsUndoEnabled}, limit: {line.UndoLimit}).");
+                line.Undo();
+                Require(desk.Store.Find(note.Id)!.Note.Body == before,
+                    "native undo must restore the text and preserve surrounding Markdown");
+                line.Redo();
+                Require(desk.Store.Find(note.Id)!.Note.Body == after,
+                    "native redo must restore the typed edit");
                 Console.WriteLine("PASS manager and sticky fall back to editable WPF when WebView2 is unavailable");
                 return;
             }
@@ -175,6 +194,21 @@ static class WebEditorChecks
 
             manager.Activate();
             wide.Focus();
+            var imageLayout = desk.Store.ImageLayouts(note.Id).Single().Layout;
+            var viewport = JsonSerializer.Deserialize<int>(await Eval(narrow, "innerHeight"));
+            sticky.Height = sticky.MinHeight;
+            await Until(async () => JsonSerializer.Deserialize<int>(await Eval(narrow, "innerHeight")) < viewport,
+                "the compact sticky must resize the WebView2 viewport");
+            Require(await Eval(narrow, """
+                (() => {
+                    const bounds = document.querySelector('img[data-picture]').getBoundingClientRect();
+                    return bounds.width <= document.querySelector('.tiptap').clientWidth &&
+                        bounds.height <= innerHeight * .8 + 1;
+                })()
+                """) == "true" && desk.Store.ImageLayouts(note.Id).Single().Layout == imageLayout,
+                "The compact sticky must fit the picture without changing its saved layout.");
+            sticky.Height = 275;
+            Console.WriteLine("PASS compact WebView2 paper constrains the image without changing its saved layout");
             await Eval(wide, "(() => { const root = document.querySelector('.tiptap'); root.focus(); getSelection().collapse(root.firstElementChild.firstChild, 6); })()");
             await Key(wide, "Enter", 13);
             await Until(() => Task.FromResult(desk.Store.ImageLayouts(note.Id).Single().Layout!.Anchor > 2), "Enter must move image to the next paragraph");
@@ -204,6 +238,15 @@ static class WebEditorChecks
                 """);
             await FormatCommand(manager, wide, "Жирный");
             await Until(() => Task.FromResult(desk.Store.Find(note.Id)!.Note.Body.Contains("**Before**")), "bold must format the selected text");
+            await Key(wide, "z", 90, modifiers: 2, code: "KeyZ");
+            await Until(() => Task.FromResult(!desk.Store.Find(note.Id)!.Note.Body.Contains("**Before**")), "undo must remove the last format edit");
+            await Key(wide, "y", 89, modifiers: 2, code: "KeyY");
+            await Until(() => Task.FromResult(desk.Store.Find(note.Id)!.Note.Body.Contains("**Before**")), "redo must restore the format edit");
+            var search = (TextBox)manager.FindName("SearchBox");
+            await Eval(wide, "document.dispatchEvent(new KeyboardEvent('keydown', {ctrlKey:true, code:'KeyF'}))");
+            await Until(() => Task.FromResult(search.IsKeyboardFocusWithin), "Ctrl+F in WebView2 must focus manager search");
+            Console.WriteLine("PASS WebView2 undo, redo and search shortcut persist and route correctly");
+            wide.Focus();
             await Eval(wide, """
                 (() => {
                     const cell = document.querySelector('tbody td p');
@@ -290,6 +333,55 @@ static class WebEditorChecks
             Require(desk.Store.Find(topNote.Id) == null && desk.Store.Find(note.Id) != null, "purge must remove only the trashed note");
             Console.WriteLine("PASS trashing the desktop stack top reveals the next WebView2 note and permanent deletion removes only the trashed note");
 
+            var sourceBody = desk.Store.Find(note.Id)!.Note.Body;
+            manager.Activate();
+            wide.Focus();
+            await Eval(wide, """
+                (() => {
+                    const root = document.querySelector('.tiptap');
+                    const text = root.querySelector('strong').firstChild;
+                    root.focus();
+                    getSelection().setBaseAndExtent(text, 0, text, text.length);
+                })()
+                """);
+            string copied = "[]";
+            await Until(async () =>
+            {
+                copied = await Eval(wide, """
+                    (() => {
+                        const clipboard = new DataTransfer();
+                        document.querySelector('.tiptap').dispatchEvent(new ClipboardEvent('copy',
+                            { clipboardData: clipboard, bubbles: true, cancelable: true }));
+                        return [clipboard.getData('text/plain'), clipboard.getData('text/html')];
+                    })()
+                    """);
+                return JsonSerializer.Deserialize<string[]>(copied) is [var plain, var html] &&
+                    plain.Trim() == "Before" && html.Contains("<strong");
+            }, "Copy must keep the selected text and formatting.");
+            var destination = new Note { Title = "Copy target", Body = "Target" };
+            desk.Store.Save(destination);
+            await Until(() => Task.FromResult(cards.Items.OfType<NoteCard>().Any(card => card.Id == destination.Id)),
+                "the destination note must appear in the manager");
+            cards.SelectedItem = cards.Items.OfType<NoteCard>().Single(card => card.Id == destination.Id);
+            await Until(async () => await Eval(wide, "document.querySelector('.tiptap').textContent") == "\"Target\"",
+                "the destination must have a separate editor document");
+            await Eval(wide, $$"""
+                (() => {
+                    const [text, html] = {{copied}};
+                    const root = document.querySelector('.tiptap');
+                    root.focus();
+                    getSelection().collapse(root.querySelector('p').firstChild, 6);
+                    const clipboard = new DataTransfer();
+                    clipboard.setData('text/plain', text);
+                    clipboard.setData('text/html', html);
+                    root.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+                })()
+                """);
+            await Until(() => Task.FromResult(desk.Store.Find(destination.Id)!.Note.Body.Contains("**Before**")),
+                "pasting into another note must keep the selected formatting");
+            Require(desk.Store.Find(note.Id)!.Note.Body == sourceBody, "Copying must leave the source unchanged.");
+            Console.WriteLine("PASS copying a formatted selection between WebView2 notes leaves the source unchanged");
+
             async Task FormatCommand(Window window, WebView2CompositionControl browser, string? caption, bool shortcut = false)
             {
                 var button = (Button)window.FindName("FormatButton");
@@ -342,11 +434,11 @@ static class WebEditorChecks
 
     private static Task<string> Eval(WebView2CompositionControl host, string script) => host.CoreWebView2.ExecuteScriptAsync(script);
 
-    private static async Task Key(WebView2CompositionControl host, string key, int code)
+    private static async Task Key(WebView2CompositionControl host, string key, int virtualKey, int modifiers = 0, string? code = null)
     {
         foreach (var type in new[] { "keyDown", "keyUp" })
             await host.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent",
-                JsonSerializer.Serialize(new { type, key, code = key, windowsVirtualKeyCode = code }));
+                JsonSerializer.Serialize(new { type, key, code = code ?? key, windowsVirtualKeyCode = virtualKey, modifiers }));
     }
 
     private static async Task Until(Func<Task<bool>> condition, string message)

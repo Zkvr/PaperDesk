@@ -25,7 +25,8 @@ Give each project its own stack. Drag a note or a whole stack by its upper edge 
 ![PaperDesk’s Windows manager with pastel notes and a weekend checklist with a river photograph attached.](media/manager.png)
 
 - Edit checklists, tables, and spoilers directly on the paper. Paste or drag in an image and choose inline, wrap, or overlay placement.
-- Bring notes forward with a shortcut, or find them with search and filters. Archive or trash several sheets at once.
+- Bring notes forward with a shortcut, or use **Ctrl+F** and **Enter** to find and open a note in the manager. Duplicate a note with its attachments or move several notes into a stack.
+- Favorites stay at the top of each section. Press **F1** in the manager for shortcuts and stack gestures.
 - Export notes, images, and desktop stacks to a JSON backup you can move to another PC.
 
 ### Crumple a finished note

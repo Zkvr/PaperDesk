@@ -34,8 +34,15 @@ public sealed class DeskController : IDisposable
     public DeskController(string root)
     {
         DataRoot = root; Directory.CreateDirectory(root);
-        Settings = File.Exists(Path.Combine(root, "settings.json")) ? Json.Read<Settings>(File.ReadAllText(Path.Combine(root, "settings.json"))) : new Settings();
+        var settingsPath = Path.Combine(root, "settings.json");
+        var newProfile = !File.Exists(settingsPath) && !Directory.Exists(Path.Combine(root, "profiles"));
+        Settings = File.Exists(settingsPath) ? Json.Read<Settings>(File.ReadAllText(settingsPath)) : new Settings();
         OpenStore(Guid.Empty);
+        if (newProfile)
+        {
+            Settings = Settings with { WelcomePending = true };
+            SaveSettings();
+        }
         tray = new Forms.NotifyIcon { Text = "PaperDesk", Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application, Visible = true, ContextMenuStrip = new Forms.ContextMenuStrip() };
         summonItem = new Forms.ToolStripMenuItem(L.T("Вызвать заметки поверх окон"), null, (_, _) => SummonNotes());
         tray.ContextMenuStrip.Items.Add(summonItem);
@@ -104,6 +111,24 @@ public sealed class DeskController : IDisposable
         Changed?.Invoke();
     }
     private void SaveSettings() { var p = Path.Combine(DataRoot, "settings.json"); File.WriteAllText(p + ".tmp", Json.Write(Settings)); File.Move(p + ".tmp", p, true); }
+    internal void DismissWelcome()
+    {
+        if (!Settings.WelcomePending) return;
+        Settings = Settings with { WelcomePending = false };
+        SaveSettings();
+    }
+    internal Guid? CreateWelcomeExample()
+    {
+        if (!Settings.WelcomePending) return null;
+        var note = new Note
+        {
+            Title = L.T("Первый листик"),
+            Body = L.T("- [ ] Отметьте этот пункт\n- [ ] Покажите листик на рабочем столе\n- [ ] Перетащите за верхнюю ручку на другой листик, чтобы собрать стопку\n\nПотяните нижнюю ручку, чтобы отделить листик. Эту заметку можно изменить или отправить в корзину.")
+        };
+        Store.Save(note);
+        DismissWelcome();
+        return note.Id;
+    }
     internal Guid CreateNote()
     {
         var note = new Note();
@@ -421,6 +446,9 @@ public sealed class DeskController : IDisposable
         }
         ReconcileWindows();
     }
+
+    internal void ExtractFromStack(IEnumerable<Guid> ids) =>
+        AssignStack(ids.Where(id => Store.GetPlacement(id).StackId.HasValue).ToArray(), null);
 
     private List<Rect> OccupiedBounds() => stickies.Values.Where(w => w.IsVisible)
         .Select(w => new Rect(w.Left, w.Top, w.Width, w.Height)).ToList();

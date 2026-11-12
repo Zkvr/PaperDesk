@@ -181,6 +181,9 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !menu.hidden) { menu.hidden = true; event.preventDefault() }
   if (event.ctrlKey && event.shiftKey && event.code === 'KeyF') { event.preventDefault(); requestFormat() }
   if (event.ctrlKey && !event.shiftKey && event.code === 'KeyN') { event.preventDefault(); send('newNote') }
+  if (scope?.canSearch && event.ctrlKey && !event.shiftKey && !event.altKey && event.code === 'KeyF') {
+    event.preventDefault(); send('search')
+  }
   if (event.shiftKey && event.key === 'Tab' && !editor.isActive('table')) { event.preventDefault(); send('title') }
 })
 

@@ -35,6 +35,7 @@ static class UiChecks
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
         if (args is ["--performance", var performanceFolder]) return PerformanceChecks.Run(performanceFolder);
         if (args is ["--manager-scale", var managerFolder]) return PerformanceChecks.CheckScrolling(managerFolder);
+        if (args is ["--usability", var usabilityFolder]) return UsabilityChecks.Run(usabilityFolder);
         if (args is ["--windows-shell", var shellFolder]) return WindowsShellChecks.CheckDesktop(shellFolder);
         if (args is ["--editor-lifetime", var lifetimeFolder]) return WebEditorChecks.RunLifetime(lifetimeFolder);
         if (args is ["--web-editor", var editorFolder]) return WebEditorChecks.Run(editorFolder);

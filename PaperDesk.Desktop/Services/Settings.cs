@@ -12,6 +12,7 @@ public record Settings
     public string SummonHotkey { get; init; } = "Ctrl+Alt+Space";
     public bool AutoStart { get; init; }
     public bool StartInTray { get; init; } = true;
+    public bool WelcomePending { get; init; }
     public bool ShowNotesAtStartup { get; init; } = true;
     public bool StackedNotes { get; init; } = true;
     public Guid StackActiveNoteId { get; init; }

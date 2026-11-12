@@ -256,6 +256,40 @@ var tests = new (string Name, Action Run)[]
         Equal(copy.Id, previous.Id);
         Equal("previous", previous.Body);
     })),
+    ("Duplicating a note copies paper styling and attachments into an independent draft", () => WithStore(s => {
+        var source = new Note { Title = "Plan", Body = "- [x] Keep the original\n\n**Text**" };
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+V04cAAAAASUVORK5CYII=");
+        var layout = new NoteImageLayout(.2, .3, .4, ImageTextMode.Wrap, 1);
+        s.Save(source);
+        var outgoing = s.Pending().Single();
+        s.SavePlacement(new Placement { NoteId = source.Id, Visible = true, Favorite = true,
+            Topmost = true, Color = "#DDF0D5", FontSize = 22 });
+        Equal(true, s.AddImages(source.Id, [png], layout));
+        var originalPicture = s.ImageIds(source.Id).Single();
+        var changes = 0;
+        s.Changed += () => changes++;
+
+        var id = s.Duplicate(source.Id) ?? throw new Exception("The original must be duplicable.");
+
+        Equal(1, changes);
+        Equal(true, id != source.Id);
+        var copy = s.Find(id)!.Note;
+        Equal(source.Body, copy.Body);
+        Equal(L.F("{0} — копия", source.Title), copy.Title);
+        var placement = s.GetPlacement(id);
+        Equal("#DDF0D5", placement.Color);
+        Equal(22d, placement.FontSize);
+        Equal<Guid?>(null, placement.StackId);
+        Equal(false, placement.Visible || placement.Favorite || placement.Topmost);
+        var picture = s.ImageLayouts(id).Single();
+        Equal(layout, picture.Layout);
+        Equal(true, picture.Id != originalPicture && png.SequenceEqual(s.ReadImage(id, picture.Id)!));
+        s.RemoveImage(id, picture.Id);
+        Equal(originalPicture, s.ImageIds(source.Id).Single());
+        Equal(outgoing, s.Pending().Single(op => op.Note.Id == source.Id));
+        Equal(id, s.Pending().Single(op => op.Note.Id != source.Id).Note.Id);
+        Equal<Guid?>(null, s.Duplicate(Guid.NewGuid()));
+    })),
     ("Legacy orphan history does not attach to an existing note or keep a foreign owner", () => WithStore(s => {
         var note = new Note { Body = "existing" };
         s.Save(note);

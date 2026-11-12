@@ -72,6 +72,34 @@ public sealed class NoteStore : INoteStore, IDisposable
         lock (gate) { using var tx = db.BeginTransaction(); SaveInternal(note); tx.Commit(); }
         Changed?.Invoke();
     }
+    public Guid? Duplicate(Guid id)
+    {
+        Guid copyId;
+        lock (gate)
+        {
+            if (Find(id)?.Note is not { DeletedAt: null } source) return null;
+            using var tx = db.BeginTransaction();
+            var copy = new Note
+            {
+                Title = string.IsNullOrWhiteSpace(source.Title) ? L.T("Копия заметки") : L.F("{0} — копия", source.Title),
+                Body = source.Body
+            };
+            copyId = copy.Id;
+            SaveInternal(copy);
+            PutPlacement(GetPlacement(id) with
+            {
+                NoteId = copyId, StackId = null, Visible = false, Favorite = false, Topmost = false
+            });
+            foreach (var (imageId, layout) in ImageLayouts(id))
+            {
+                var png = ReadImage(id, imageId) ?? throw new InvalidDataException("Missing attachment during duplication.");
+                PutImage(new NoteImage(copyId, Guid.NewGuid(), png, layout));
+            }
+            tx.Commit();
+        }
+        Changed?.Invoke();
+        return copyId;
+    }
     public void SaveText(Guid id, string? title, string? body, string shownTitle, string shownBody,
         IReadOnlyDictionary<Guid, NoteImageLayout>? imageLayouts = null)
     {
