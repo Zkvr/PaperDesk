@@ -1,7 +1,5 @@
 # PaperDesk for Windows
 
-[Русская инструкция](USER-GUIDE.ru.md)
-
 PaperDesk keeps sticky notes on your desktop. The Windows x64 packages include .NET. The installer accepts Windows 10 build 19041 and later. This release candidate was tested on Windows 11 x64. The built-in editor opens automatically if the Microsoft Edge WebView2 Runtime is unavailable.
 
 ## Install and update

@@ -4,7 +4,7 @@
 
 - The Windows app, installer, GitHub tag check and WinGet manifests use the same version.
 - Release builds produce an offline x64 installer, a portable ZIP and SHA-256 checksums. The release candidate is marked as a prerelease.
-- Added English and Russian guides for installation, updates, backup and recovery, with details on local storage.
+- Added a Windows guide for installation, updates, backup, recovery, and local storage.
 
 ## 0.6.0-beta
 

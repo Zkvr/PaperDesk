@@ -6,7 +6,6 @@
   <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.7.0-rc"><strong>Download v0.7.0-rc</strong></a>
   &nbsp;·&nbsp; <a href="#themes-and-paper">What's new</a>
   &nbsp;·&nbsp; <a href="#start-writing">Quick start</a>
-  &nbsp;·&nbsp; <a href="docs/USER-GUIDE.ru.md">Инструкция на русском</a>
 </p>
 
 Keep a checklist beside your work, a stack for each project, and a blank sheet for your next thought. PaperDesk puts sticky notes on your Windows desktop. Everything stays on your computer, and you can start writing offline without an account.
@@ -59,7 +58,7 @@ The Windows x64 release candidate includes .NET and follows your Windows display
 
 Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. In the manager, **Ctrl+V** pastes an image into the selected note. Use **File → Export a backup…** to save your notes and images as a JSON file you can move to another PC.
 
-[Install, update and restore your notes](docs/USER-GUIDE.md) · [Инструкция на русском](docs/USER-GUIDE.ru.md) · [Changelog](CHANGELOG.md)
+[Install, update and restore your notes](docs/USER-GUIDE.md) · [Changelog](CHANGELOG.md)
 
 ## Build from source
 
