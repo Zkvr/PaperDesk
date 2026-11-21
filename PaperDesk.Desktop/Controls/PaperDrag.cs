@@ -5,20 +5,27 @@ using PaperDesk.Desktop.Win32Interop;
 namespace PaperDesk.Desktop.Controls;
 
 /// <summary>Moves a sheet directly, without entering the Windows move/Snap loop.</summary>
-public sealed class PaperDrag
+internal sealed class PaperDrag
 {
     private readonly Window window;
-    private readonly Action<bool> started;
-    private readonly Action<Point, Vector> moved;
+    private readonly UIElement paper;
+    private readonly Action<bool, Point> started;
+    private readonly Action<Point, Vector, double, double, Point?> moved;
     private readonly Action<Point?, Rect> finished;
     private PaperDragTrack? track;
-    private Point press;
+    private Point press, grip;
     private Rect origin;
+    private Point screenOrigin;
+    private Matrix toDevice;
     private bool dragging, wholeStack;
+    private PaperContact contact;
+    internal bool InContact => dragging && !contact.Free;
 
-    public PaperDrag(Window window, UIElement moveHandle, UIElement peelHandle, Action<bool> started, Action<Point, Vector> moved, Action<Point?, Rect> finished)
+    public PaperDrag(Window window, UIElement paper, UIElement moveHandle, UIElement peelHandle,
+        Action<bool, Point> started, Action<Point, Vector, double, double, Point?> moved, Action<Point?, Rect> finished)
     {
         this.window = window;
+        this.paper = paper;
         this.started = started;
         this.moved = moved;
         this.finished = finished;
@@ -45,8 +52,13 @@ public sealed class PaperDrag
         if (track != null || e.LeftButton != MouseButtonState.Pressed || !Native.GetCursorPos(out var pointer)) return;
         origin = new Rect(window.Left, window.Top, window.Width, window.Height);
         press = e.GetPosition(window);
+        grip = e.GetPosition(paper);
         wholeStack = moveWholeStack;
+        contact = new PaperContact(paper.RenderSize.Height, wholeStack);
         var fromDevice = PresentationSource.FromVisual(window)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+        screenOrigin = window.PointToScreen(new Point());
+        toDevice = fromDevice;
+        toDevice.Invert();
         // Capture the stable window, whose child sheet changes shape during the gesture.
         if (!window.CaptureMouse()) return;
         track = new PaperDragTrack(new Point(pointer.X, pointer.Y), origin, fromDevice, Stopwatch.GetTimestamp());
@@ -77,12 +89,12 @@ public sealed class PaperDrag
         if (!dragging)
         {
             dragging = true;
-            started(wholeStack);
+            started(wholeStack, grip);
             if (track == null) return;
         }
-        if (window.Left != bounds.Left) window.Left = bounds.Left;
-        if (window.Top != bounds.Top) window.Top = bounds.Top;
-        moved(screen, velocity);
+        var travel = bounds.TopLeft - origin.TopLeft;
+        var offset = contact.Move(travel, out var fraction);
+        moved(screen, velocity, fraction, travel.X / Math.Max(12, travel.Length), screenOrigin + toDevice.Transform(offset));
     }
 
     public void Cancel() => End(drop: false);
@@ -97,7 +109,7 @@ public sealed class PaperDrag
         dragging = false;
         if (window.IsMouseCaptured) window.ReleaseMouseCapture();
         if (!wasDragging) return;
-        if (drop && Native.GetCursorPos(out var pointer)) finished(new Point(pointer.X, pointer.Y), origin);
+        if (drop && contact.Free && Native.GetCursorPos(out var pointer)) finished(new Point(pointer.X, pointer.Y), origin);
         else
         {
             window.Left = origin.Left;
@@ -137,6 +149,28 @@ public sealed class PaperDrag
         }
         static double Overlap(double start, double end, double otherStart, double otherEnd) =>
             Math.Min(end, otherEnd) - Math.Max(start, otherStart);
+    }
+}
+
+internal struct PaperContact(double height, bool free)
+{
+    private readonly double distance = Math.Clamp(height * .23, 38, 84);
+    private Vector releaseOffset;
+    private double slack = 1;
+    internal bool Free { get; private set; } = free;
+
+    internal Vector Move(Vector travel, out double fraction)
+    {
+        // A pull back over the glue releases sooner than shearing along the desk.
+        fraction = new Vector(.76 * travel.X, travel.Y < 0 ? travel.Y : .58 * travel.Y).Length / distance;
+        if (!Free)
+        {
+            if (fraction < 1) return default;
+            Free = true;
+            releaseOffset = travel / fraction;
+        }
+        slack = Math.Min(slack, Math.Max(0, 1 - (travel - releaseOffset).Length / distance));
+        return travel - releaseOffset * slack;
     }
 }
 

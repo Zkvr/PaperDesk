@@ -52,3 +52,21 @@ test('older checkbox markers and empty tasks open as editable task items', () =>
   const saved = codec.write(document, [])
   assert.deepEqual(codec.read(saved.body, []), document)
 })
+
+test('editing another paragraph preserves absolute and relative Markdown links', () => {
+  const body = '[Agenda](https://example.com/agenda "Today") and [Draft](../draft.md)'
+  const document = codec.read(body, [])
+  document.content.push({ type: 'paragraph', content: [{ type: 'text', text: 'New paragraph' }] })
+  const saved = codec.write(document, []).body
+  assert.ok(saved.includes(body))
+  assert.match(saved, /New paragraph/)
+})
+
+test('an imported Markdown image reference stays intact without becoming an attachment', () => {
+  const source = 'See ![Diagram](https://example.com/diagram.png "Draft") for details.'
+  const document = codec.read(source, [])
+  schema.nodeFromJSON(document).check()
+  const saved = codec.write(document, [])
+  assert.equal(saved.body, source)
+  assert.deepEqual(saved.images, [])
+})

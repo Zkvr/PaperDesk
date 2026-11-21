@@ -1,4 +1,5 @@
 import StarterKit from '@tiptap/starter-kit'
+import { Node } from '@tiptap/core'
 import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details'
 import { Image } from '@tiptap/extension-image'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
@@ -8,6 +9,15 @@ import { NodeSelection } from '@tiptap/pm/state'
 
 const pictureScale = 380
 const validId = /^[0-9a-f-]{36}$/i
+const imageReference = Node.create({
+  name: 'paperImageReference',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  addAttributes: () => ({ source: { default: '' } }),
+  renderHTML: ({ node }) => ['span', {}, node.attrs.source],
+  renderMarkdown: node => node.attrs.source,
+})
 
 function legacyTasks(body) {
   let fence
@@ -80,7 +90,10 @@ export function createDocumentCodec(nonce) {
     parseHTML() {
       return [{ tag: 'img[data-picture]', getAttrs: element => layouts.has(element.dataset.picture) ? null : false }]
     },
-    parseMarkdown: token => pictureNode(layouts.get(token.id)),
+    parseMarkdown(token) {
+      const layout = layouts.get(token.id)
+      return layout ? pictureNode(layout) : { type: 'paperImageReference', attrs: { source: token.raw } }
+    },
     renderMarkdown: node => marker + node.attrs.id,
     addKeyboardShortcuts() {
       return {
@@ -94,7 +107,13 @@ export function createDocumentCodec(nonce) {
     },
   }).configure({ resize: { enabled: true, directions: ['bottom-right'], minWidth: 32, minHeight: 24, alwaysPreserveAspectRatio: true } })
 
-  const extensions = [StarterKit.configure({ link: false, trailingNode: false }), TableKit, TaskList, TaskItem, spoiler, DetailsSummary, DetailsContent, image]
+  const extensions = [
+    StarterKit.configure({
+      link: { openOnClick: false, autolink: false, linkOnPaste: false },
+      trailingNode: false,
+    }),
+    TableKit, TaskList, TaskItem, spoiler, DetailsSummary, DetailsContent, image, imageReference,
+  ]
   const markdown = new MarkdownManager({ extensions, markedOptions: { gfm: true, breaks: true } })
 
   function pictureNode(layout) {

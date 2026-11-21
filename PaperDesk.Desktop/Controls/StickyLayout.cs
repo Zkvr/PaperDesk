@@ -5,6 +5,18 @@ public static class StickyLayout
 {
     public const double MinWidth = 220, MinHeight = 180;
     public static bool IsCompact(double width, double height) => width < 260 || height < 300;
+    internal static Thickness FaceMargin(double width, double height) =>
+        new(IsCompact(width, height) ? 8 : 14);
+
+    internal static Rect DesktopDropBounds(Point screenPoint, Matrix fromDevice, Size size, Point? grip = null)
+    {
+        var work = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point((int)screenPoint.X, (int)screenPoint.Y)).WorkingArea;
+        var area = Rect.Transform(new Rect(work.Left, work.Top, work.Width, work.Height), fromDevice);
+        var point = fromDevice.Transform(screenPoint);
+        var offset = grip is Point g ? new Vector(-g.X * size.Width, -g.Y * size.Height) : new Vector(10, 12);
+        return new Rect(Math.Clamp(point.X + offset.X, area.Left, Math.Max(area.Left, area.Right - size.Width)),
+            Math.Clamp(point.Y + offset.Y, area.Top, Math.Max(area.Top, area.Bottom - size.Height)), size.Width, size.Height);
+    }
 
     public static void Apply(Grid content, bool compact)
     {

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using PaperDesk.Desktop.Services;
@@ -22,6 +23,25 @@ public sealed partial class NoteBodyEditor
     private Action? webSearch;
     private bool webQueued, webUnavailable;
     internal bool IsWebActive { get; private set; }
+
+    internal async Task<BitmapSource?> CapturePaperInk()
+    {
+        if (!IsWebActive || webEditor?.CoreWebView2 is not { } core || pictures?.WebNote is not { } note) return null;
+        try
+        {
+            using var stream = new MemoryStream();
+            await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
+            if (webEditor?.CoreWebView2 != core || pictures?.WebNote != note) return null;
+            stream.Position = 0;
+            var image = BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            image.Freeze();
+            return image;
+        }
+        catch (Exception error) when (error is COMException or InvalidOperationException or IOException or NotSupportedException)
+        {
+            return null;
+        }
+    }
 
     internal void EnableWebEditor(DeskController desk, Action newNote, Action? search = null)
     {
@@ -193,7 +213,7 @@ public sealed partial class NoteBodyEditor
             webDocuments.Add(document);
             if (webDocuments.Count > 4) webDocuments.RemoveAt(0);
         }
-        document.Body = row.Note.Body;
+        document.Body = webDesk.UnsavedDraft(store, id)?.Body ?? row.Note.Body;
         var payload = WebLoad(document, editable);
         if (payload == document.LastLoad) return;
         document.LastLoad = payload;
@@ -245,7 +265,7 @@ public sealed partial class NoteBodyEditor
         {
             var layouts = ReadWebLayouts(current, message.Body, message.Images);
             var shownBody = message.Before ?? current.Body;
-            current.Store.SaveText(current.Id, null, message.Body, "", shownBody, layouts);
+            webDesk!.SaveEditorText(current.Store, current.Id, null, message.Body, row.Note.Title, shownBody, layouts);
             current.Body = message.Body;
             current.LastLoad = WebLoad(current, editable);
             return;

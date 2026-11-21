@@ -61,10 +61,14 @@ static class PerformanceChecks
             saveMs[i] = started.Elapsed.TotalMilliseconds;
             body = next;
         }
+        var untouched = vm.Notes.First(card => card.Id != note.Id);
         started.Restart();
-        vm.Refresh();
+        vm.Refresh([note.Id]);
         manager.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         var refreshMs = started.Elapsed.TotalMilliseconds;
+        if (!ReferenceEquals(untouched, vm.Notes.First(card => card.Id == untouched.Id)) ||
+            !vm.Notes.First(card => card.Id == note.Id).Preview.StartsWith("99", StringComparison.Ordinal))
+            throw new InvalidOperationException("An edit must update its own preview and reuse untouched card data.");
         manager.Close();
         Array.Sort(saveMs);
         Console.WriteLine(JsonSerializer.Serialize(new

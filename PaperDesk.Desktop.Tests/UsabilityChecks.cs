@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using Microsoft.Data.Sqlite;
 using PaperDesk.Core;
 using PaperDesk.Desktop.Controls;
 using PaperDesk.Desktop.Services;
@@ -73,7 +74,32 @@ static class UsabilityChecks
             finally { manager.Close(); }
         }
         Console.WriteLine("PASS keyboard search, pinned favorites, saved typography and bulk stack extraction");
+        CheckWriteRecovery(root);
         return 0;
+    }
+
+    private static void CheckWriteRecovery(string root)
+    {
+        var profile = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        using var desk = new DeskController(profile);
+        var note = new Note { Title = "Title", Body = "Persisted" };
+        desk.Store.Save(note);
+        using var connection = new SqliteConnection("Data Source=" + Path.Combine(profile, "profiles", "local", "notes.db"));
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TRIGGER test_write_failure BEFORE UPDATE ON notes BEGIN SELECT RAISE(ABORT, 'fixture'); END;";
+        command.ExecuteNonQuery();
+        desk.SaveEditorText(desk.Store, note.Id, null, "Unsaved", note.Title, note.Body);
+        desk.SaveEditorText(desk.Store, note.Id, null, "Latest", note.Title, "Unsaved");
+        Require(desk.HasUnsavedEdits && desk.UnsavedDraft(desk.Store, note.Id)?.Body == "Latest" &&
+            desk.Store.Find(note.Id)?.Note.Body == "Persisted", "Keep the latest unsaved body after a failed transaction.");
+        command.CommandText = "DROP TRIGGER test_write_failure";
+        command.ExecuteNonQuery();
+        var recovery = Application.Current.Windows.OfType<UnsavedNoteWindow>().Single();
+        var panel = (DockPanel)recovery.Content;
+        Click(panel.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().Last());
+        Require(!desk.HasUnsavedEdits && desk.Store.Find(note.Id)?.Note.Body == "Latest", "Retry persists the draft and clears its warning.");
+        Console.WriteLine("PASS SQLite write failure keeps a recoverable draft and retry persists the latest text");
     }
 
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));

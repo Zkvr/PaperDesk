@@ -8,7 +8,7 @@ public partial class App : Application
     private EventWaitHandle? activate;
     private bool ownsMutex;
     public DeskController Controller { get; private set; } = null!;
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         string? dataRoot = null;
@@ -17,7 +17,7 @@ public partial class App : Application
             ErrorLog.Write(dataRoot, ErrorLog.Area.Dispatcher, args.Exception, localAppData);
         if (e.Args is [PortableUpdate.ApplyArgument, var job])
         {
-            try { PortableUpdate.Apply(job); Shutdown(); }
+            try { await PortableUpdate.SaveLegacyZip(job); Shutdown(); }
             catch (Exception error)
             {
                 ErrorLog.Write(null, ErrorLog.Area.Update, error, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));

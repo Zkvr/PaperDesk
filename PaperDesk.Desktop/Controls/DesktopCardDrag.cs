@@ -15,7 +15,7 @@ internal sealed class DesktopCardDrag
     private readonly Func<bool> selecting;
     private NoteCard? card;
     private NoteStore? sourceStore;
-    private Point press;
+    private Point press, grip;
     private Window? preview;
     private StickyWindow? dropTarget;
     private bool canDrop;
@@ -49,11 +49,14 @@ internal sealed class DesktopCardDrag
     private void Begin(object sender, MouseButtonEventArgs e)
     {
         if (selecting() || Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is not DependencyObject source) return;
-        if (ItemsControl.ContainerFromElement(cards, source) is not ListBoxItem { Content: NoteCard note } ||
+        if (ItemsControl.ContainerFromElement(cards, source) is not ListBoxItem { Content: NoteCard note } item ||
             desk.Store.Find(note.Id)?.Note is not { ArchivedAt: null, DeletedAt: null }) return;
         card = note;
         sourceStore = desk.Store;
         press = e.GetPosition(owner);
+        var local = e.GetPosition(item);
+        grip = new Point(Math.Clamp(local.X / Math.Max(1, item.ActualWidth), 0, 1),
+            Math.Clamp(local.Y / Math.Max(1, item.ActualHeight), 0, 1));
     }
 
     private void Move(object sender, MouseEventArgs e)
@@ -71,18 +74,29 @@ internal sealed class DesktopCardDrag
             if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
                 Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
             if (!cards.CaptureMouse()) { Cancel(); return; }
-            preview = CreatePreview(card);
+            preview = CreatePreview(desk, card.Id);
+            var startTransform = PresentationSource.FromVisual(owner)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+            var start = StickyLayout.DesktopDropBounds(new Point(point.X, point.Y), startTransform, new Size(preview.Width, preview.Height), grip);
+            preview.Left = start.Left;
+            preview.Top = start.Top;
             preview.Show();
         }
 
+        if (preview == null || card == null) return; // Showing a window may reenter a cancellation handler.
         var source = PresentationSource.FromVisual(preview);
-        var offset = source?.CompositionTarget?.TransformToDevice.Transform(new Vector(10, 12)) ?? new Vector(10, 12);
-        Native.MoveWithoutActivate(new WindowInteropHelper(preview).Handle,
-            point.X + (int)Math.Round(offset.X), point.Y + (int)Math.Round(offset.Y));
+        var composition = source?.CompositionTarget;
+        if (composition == null) return;
+        var bounds = StickyLayout.DesktopDropBounds(new Point(point.X, point.Y), composition.TransformFromDevice,
+            new Size(preview.Width, preview.Height), grip);
+        var pixel = composition.TransformToDevice.Transform(bounds.TopLeft);
+        var handle = new WindowInteropHelper(preview).Handle;
+        var x = (int)Math.Round(pixel.X);
+        var y = (int)Math.Round(pixel.Y);
+        if (!Native.GetWindowRect(handle, out var current) || current.Left != x || current.Top != y)
+            Native.MoveWithoutActivate(handle, x, y);
         Highlight(desk.FindCardDropTarget(card.Id, point));
-        canDrop = dropTarget != null || DesktopLayer.IsDesktopAt(point);
-        preview.Opacity = canDrop ? 1 : .72;
-        Mouse.UpdateCursor();
+        var allowed = dropTarget != null || DesktopLayer.IsDesktopAt(point);
+        if (allowed != canDrop) { canDrop = allowed; Mouse.UpdateCursor(); }
         e.Handled = true;
     }
 
@@ -93,11 +107,14 @@ internal sealed class DesktopCardDrag
         var note = card;
         var store = sourceStore;
         var transform = PresentationSource.FromVisual(preview)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
-        Cancel();
-        if (note == null || selecting() || !ReferenceEquals(store, desk.Store) || !Native.GetCursorPos(out var point)) return;
-        if (desk.FindCardDropTarget(note.Id, point) is { } target) desk.StackCard(note.Id, target);
-        else if (DesktopLayer.IsDesktopAt(point))
-            desk.PlaceOnDesktop(note.Id, new Point(point.X, point.Y), transform);
+        try
+        {
+            if (note == null || selecting() || !ReferenceEquals(store, desk.Store) || !Native.GetCursorPos(out var point)) return;
+            if (desk.FindCardDropTarget(note.Id, point) is { } target) desk.StackCard(note.Id, target);
+            else if (DesktopLayer.IsDesktopAt(point))
+                desk.PlaceOnDesktop(note.Id, new Point(point.X, point.Y), transform, grip);
+        }
+        finally { Cancel(); }
     }
 
     private void Highlight(StickyWindow? target)
@@ -113,6 +130,7 @@ internal sealed class DesktopCardDrag
         Highlight(null);
         var ghost = preview;
         preview = null;
+        canDrop = false;
         card = null;
         sourceStore = null;
         if (ghost == null) return;
@@ -121,26 +139,19 @@ internal sealed class DesktopCardDrag
         Mouse.UpdateCursor();
     }
 
-    private static Window CreatePreview(NoteCard note)
+    internal static StickyWindow CreatePreview(DeskController desk, Guid id)
     {
-        var text = new StackPanel { Margin = new Thickness(12, 9, 13, 12), ClipToBounds = true };
-        text.Children.Add(new TextBlock
+        var window = new StickyWindow(desk, id, animateOpening: false, cardPreview: true)
         {
-            Text = note.Title, FontFamily = new FontFamily("Segoe Print"), FontWeight = FontWeights.SemiBold,
-            FontSize = 15, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 0, 5)
-        });
-        text.Children.Add(new TextBlock { Text = note.Preview, FontSize = 12, TextWrapping = TextWrapping.Wrap });
-        var window = new Window
-        {
-            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, AllowsTransparency = true,
-            Background = Brushes.Transparent, ShowInTaskbar = false, ShowActivated = false, Focusable = false,
-            IsHitTestVisible = false, Topmost = true, Width = 177, Height = 119, Foreground = PaperPalette.Brush("#302D29"),
-            Content = new PaperSurface { Fill = PaperPalette.Brush(note.Color), Child = text }
+            ShowActivated = false, Focusable = false, IsHitTestVisible = false,
+            WindowStartupLocation = WindowStartupLocation.Manual, Topmost = true
         };
         window.SourceInitialized += (_, _) =>
         {
+            const int style = -16, disabled = 0x08000000;
             const int extendedStyle = -20, passThrough = 0x20, toolWindow = 0x80, noActivate = 0x08000000;
             var handle = new WindowInteropHelper(window).Handle;
+            Native.SetWindowLong(handle, style, Native.GetWindowLong(handle, style) | disabled);
             Native.SetWindowLong(handle, extendedStyle, Native.GetWindowLong(handle, extendedStyle) | passThrough | toolWindow | noActivate);
         };
         return window;

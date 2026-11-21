@@ -1,5 +1,11 @@
 # PaperDesk changelog
 
+## 0.9.0-beta
+
+- Keep the grabbed point under the pointer when dragging a manager card to the desktop.
+- Show the full stack badge in the manager grid.
+- Settle the top sheet onto the stack with a short paper landing animation.
+
 ## 0.8.0-beta
 
 - Restore open desktop notes and stacks after exiting PaperDesk from the tray and launching it again.

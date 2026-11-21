@@ -1,5 +1,4 @@
 using System.IO;
-using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -14,7 +13,7 @@ static class UpdateChecks
         folder = Path.GetFullPath(folder);
         Directory.CreateDirectory(folder);
         CheckRelease(folder).GetAwaiter().GetResult();
-        CheckPortable(folder);
+        CheckPortable(folder).GetAwaiter().GetResult();
         return 0;
     }
 
@@ -69,49 +68,33 @@ static class UpdateChecks
         };
     }
 
-    private static void CheckPortable(string folder)
+    private static async Task CheckPortable(string folder)
     {
-        const string oldVersion = "0.8.0-beta";
-        const string newVersion = "0.8.1-beta";
-        const string app = "PaperDesk.dll";
         var target = Directory.CreateDirectory(Path.Combine(folder, "portable")).FullName;
-        var package = Directory.CreateDirectory(Path.Combine(folder, "package")).FullName;
-        var data = Directory.CreateDirectory(Path.Combine(target, "data")).FullName;
-        var notePath = Path.Combine(data, "notes.fixture");
-        File.WriteAllText(notePath, "local notes");
-        File.WriteAllText(Path.Combine(target, "unrelated.txt"), "other files");
-        WritePackage(target, oldVersion);
-        WritePackage(package, newVersion, "new-library.dll");
-        var rolledBack = false;
+        var profile = Path.Combine(target, "notes.db");
+        var app = Path.Combine(target, "PaperDesk.exe");
+        File.WriteAllText(profile, "local notes");
+        File.WriteAllText(app, "old app");
+        var download = Path.Combine(folder, "new.zip");
+        var saved = Path.Combine(folder, "saved.zip");
+        File.WriteAllText(download, "downloaded update");
+        File.WriteAllText(saved, "previous ZIP");
+
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
         try
         {
-            PortableUpdate.ApplyFiles(package, target, data, oldVersion, newVersion, Path.Combine(folder, "backup"),
-                () => throw new IOException("Synthetic restart failure."));
+            await PortableUpdate.SaveZip(download, saved, cancel.Token);
+            throw new InvalidOperationException("A canceled copy must not replace the old ZIP.");
         }
-        catch (IOException) { rolledBack = true; }
-        Require(rolledBack && File.ReadAllText(Path.Combine(target, app)) == oldVersion && !File.Exists(Path.Combine(target, "new-library.dll")),
-            "A failed restart must restore existing files and remove the new files");
-        var restarted = false;
-        PortableUpdate.ApplyFiles(package, target, data, oldVersion, newVersion, Path.Combine(folder, "backup2"), () => restarted = true);
-        Require(restarted && File.ReadAllText(Path.Combine(target, app)) == newVersion && File.ReadAllText(notePath) == "local notes" &&
-            File.ReadAllText(Path.Combine(target, "unrelated.txt")) == "other files", "Apply only package files and restart with the existing data");
-
-        var zip = Path.Combine(folder, "invalid.zip");
-        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create)) archive.CreateEntry("data/settings.json");
-        try
-        {
-            PortableUpdate.Extract(zip, Path.Combine(folder, "unpack"), CancellationToken.None);
-            throw new InvalidOperationException("A portable package must never include profile files.");
-        }
-        catch (InvalidDataException) { }
-        Console.WriteLine("PASS portable update rollback, replacement, and preservation of profile and unrelated files");
-
-        static void WritePackage(string root, string version, params string[] additional)
-        {
-            string[] files = ["PaperDesk.exe", app, "PaperDesk.deps.json", ..additional];
-            foreach (var file in files) File.WriteAllText(Path.Combine(root, file), version);
-            File.WriteAllLines(Path.Combine(root, "PaperDesk.portable.txt"), [version, ..files]);
-        }
+        catch (OperationCanceledException) { }
+        Require(File.ReadAllText(saved) == "previous ZIP", "Cancellation must preserve the old ZIP");
+        await PortableUpdate.SaveZip(download, saved, CancellationToken.None);
+        Require(File.ReadAllText(saved) == "downloaded update", "Copy the verified package bytes");
+        Require(File.ReadAllText(profile) == "local notes" && File.ReadAllText(app) == "old app",
+            "Saving the ZIP must not touch the active copy or data");
+        Require(!Directory.EnumerateFiles(folder, "saved.zip.*.part").Any(), "Do not leave partial ZIPs");
+        Console.WriteLine("PASS portable ZIP handoff preserves the running copy, profile and previous download on cancellation");
     }
 
     private static HttpResponseMessage JsonResponse(object value) => new(HttpStatusCode.OK)

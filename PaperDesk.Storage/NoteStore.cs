@@ -13,6 +13,14 @@ public sealed class NoteStore : INoteStore, IDisposable
     private readonly object gate = new();
     private readonly Guid owner;
     public event Action? Changed;
+    // A null ID invalidates the library; a text edit invalidates one note.
+    public event Action<Guid?>? Updated;
+
+    private void Notify(Guid? edit = null)
+    {
+        Updated?.Invoke(edit);
+        Changed?.Invoke();
+    }
     static NoteStore() => SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_winsqlite3());
 
     public NoteStore(string path, Guid ownerId = default)
@@ -67,10 +75,18 @@ public sealed class NoteStore : INoteStore, IDisposable
             using var r = c.ExecuteReader(); return r.Read() ? ReadLocal(r) : null;
         }
     }
+    public bool HasNotes()
+    {
+        lock (gate)
+        {
+            using var command = Command("SELECT 1 FROM notes LIMIT 1");
+            return command.ExecuteScalar() != null;
+        }
+    }
     public void Save(Note note)
     {
         lock (gate) { using var tx = db.BeginTransaction(); SaveInternal(note); tx.Commit(); }
-        Changed?.Invoke();
+        Notify();
     }
     public Guid? Duplicate(Guid id)
     {
@@ -97,20 +113,20 @@ public sealed class NoteStore : INoteStore, IDisposable
             }
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
         return copyId;
     }
-    public void SaveText(Guid id, string? title, string? body, string shownTitle, string shownBody,
+    public bool SaveText(Guid id, string? title, string? body, string shownTitle, string shownBody,
         IReadOnlyDictionary<Guid, NoteImageLayout>? imageLayouts = null)
     {
-        if (title == null && body == null) return;
+        if (title == null && body == null) return true;
         lock (gate)
         {
             using var tx = db.BeginTransaction();
-            if (Find(id) is not { } row) return;
+            if (Find(id) is not { } row) return false;
             var current = row.Note;
             var updated = current with { Title = title ?? current.Title, Body = body ?? current.Body };
-            if (updated == current && imageLayouts is not { Count: > 0 }) return;
+            if (updated == current && imageLayouts is not { Count: > 0 }) return true;
             if (body != null && imageLayouts == null) ShiftPictureAnchors(id, current.Body, body);
             if (imageLayouts != null && current is { ArchivedAt: null, DeletedAt: null })
                 foreach (var (imageId, layout) in imageLayouts)
@@ -127,7 +143,8 @@ public sealed class NoteStore : INoteStore, IDisposable
             }
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify(id);
+        return true;
     }
     private void SaveInternal(Note note)
     {
@@ -154,6 +171,14 @@ public sealed class NoteStore : INoteStore, IDisposable
     }
     public IReadOnlyList<Outgoing> Pending() => Outbox().Where(op => !op.Rejected).ToList();
     public IReadOnlySet<Guid> RejectedNotes() => Outbox().Where(op => op.Rejected).Select(op => op.Note.Id).ToHashSet();
+    public bool IsRejected(Guid id)
+    {
+        lock (gate) return FindOutgoing(id) is { Rejected: true };
+    }
+    public bool HasPending(Guid id)
+    {
+        lock (gate) return FindOutgoing(id) is { Rejected: false };
+    }
 
     public void MarkRejected(Outgoing operation)
     {
@@ -170,7 +195,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             }
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
     public void Acknowledge(Outgoing operation, Note server)
     {
@@ -184,7 +209,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             else { var next = current with { Note = current.Note with { Revision = server.Revision }, Conflict = null }; Put(next); Enqueue(next); }
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
     public void SetConflict(Outgoing operation, Note server)
     {
@@ -194,7 +219,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             using var tx = db.BeginTransaction(); if (!HasOperation(operation)) return;
             var current = Find(operation.Note.Id)!; Recover(server); Put(current with { Conflict = server }); RemoveOutgoing(server.Id); tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
     public void ApplyRemote(Note server)
     {
@@ -207,7 +232,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             if (current?.Dirty == true || (current != null && current.Note.Revision >= server.Revision)) return;
             Put(new LocalNote(server, current?.Generation ?? 0, false, null));
         }
-        Changed?.Invoke();
+        Notify();
     }
 
     public IReadOnlyList<Note> ChangeStates(IEnumerable<Guid> ids, string action)
@@ -235,7 +260,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             }
             tx.Commit();
         }
-        if (changed.Count > 0) Changed?.Invoke();
+        if (changed.Count > 0) Notify();
         return changed;
     }
 
@@ -249,7 +274,7 @@ public sealed class NoteStore : INoteStore, IDisposable
                     SaveInternal(current with { ArchivedAt = note.ArchivedAt, DeletedAt = note.DeletedAt });
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
 
     public void PurgeTrash(IEnumerable<Guid> ids)
@@ -285,7 +310,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             foreach (var id in recoveryIds) Exec("DELETE FROM recovery WHERE id=$id", ("$id", id));
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
 
     private bool IsPurged(Guid id)
@@ -305,7 +330,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             else { Put(current with { Note = remote, Dirty = false, Conflict = null }); if (choice == "both") SaveInternal(current.Note with { Id = Guid.NewGuid(), Revision = 0, Title = current.Note.Title + L.T(" (локальная копия)"), DeletedAt = null }); }
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
     public Placement GetPlacement(Guid id)
     {
@@ -367,7 +392,7 @@ public sealed class NoteStore : INoteStore, IDisposable
     public void SavePlacement(Placement p)
     {
         lock (gate) PutPlacement(p);
-        Changed?.Invoke();
+        Notify();
     }
     public void SavePlacements(IEnumerable<Placement> placements, params DesktopStack[] stacks)
     {
@@ -378,7 +403,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             foreach (var stack in stacks) PutStack(stack);
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
     }
     private void PutPlacement(Placement p) => Exec(
         "INSERT INTO placements(id,json) VALUES($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json",
@@ -451,7 +476,7 @@ public sealed class NoteStore : INoteStore, IDisposable
                 PutImage(new NoteImage(noteId, Guid.NewGuid(), pictures[i], i == 0 || position?.Mode == ImageTextMode.Inline ? position : null));
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
         return true;
     }
 
@@ -462,7 +487,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             if (Find(noteId)?.Note is not { ArchivedAt: null, DeletedAt: null }) return;
             PutImageLayout(noteId, id, layout);
         }
-        Changed?.Invoke();
+        Notify();
     }
 
     private void PutImageLayout(Guid noteId, Guid id, NoteImageLayout layout) =>
@@ -497,7 +522,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             if (Find(noteId)?.Note is not { ArchivedAt: null, DeletedAt: null }) return;
             Exec("DELETE FROM note_images WHERE note_id=$note AND id=$id", ("$note", noteId.ToString()), ("$id", id.ToString()));
         }
-        Changed?.Invoke();
+        Notify();
     }
 
     private void PutImage(NoteImage picture) => Exec("INSERT INTO note_images(note_id,id,png,layout) VALUES($note,$id,$png,$layout)",
@@ -577,7 +602,7 @@ public sealed class NoteStore : INoteStore, IDisposable
             foreach (var input in inputs) imported += import(input);
             tx.Commit();
         }
-        Changed?.Invoke();
+        Notify();
         return imported;
     }
 

@@ -163,6 +163,31 @@ static class WebEditorChecks
             var narrow = await Browser(stickyBody);
             const string painted = "document.querySelector('img[data-picture]')?.naturalWidth === 64";
             await Until(async () => await Eval(wide, painted) == "true" && await Eval(narrow, painted) == "true", "both views must load the local image");
+            await Eval(narrow, "document.body.style.backgroundColor='rgb(240, 0, 210)'");
+            await Task.Delay(180);
+            var sheet = (PaperSurface)sticky.FindName("Paper");
+            var curved = (BentPaperView)sticky.FindName("BentFace");
+            try
+            {
+                curved.Show(sheet, PaperPose.Flat with { Grip = new Point(.8, .95), Peel = .7 }, false, stickyBody);
+                await Until(() =>
+                {
+                    if (!curved.IsVisible) return Task.FromResult(false);
+                    sticky.UpdateLayout();
+                    var w = (int)curved.ActualWidth;
+                    var h = (int)curved.ActualHeight;
+                    var frame = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    frame.Render(curved);
+                    var pixels = new byte[w*h*4]; frame.CopyPixels(pixels, w*4, 0);
+                    var ink = 0;
+                    for (var i = 0; i < pixels.Length; i += 4)
+                        if (pixels[i+2] > 100 && pixels[i] > 90 && pixels[i+1] < 40) ink++;
+                    return Task.FromResult(ink > 200);
+                }, "The curved WPF sheet must display ink from the embedded browser");
+            }
+            finally { curved.Clear(); await Eval(narrow, "document.body.style.backgroundColor=''"); }
+            Console.WriteLine("PASS the bent sheet carries the real WebView2 document");
+
             Require(await Eval(wide, "innerHeight") != await Eval(narrow, "innerHeight"), "viewport heights must differ");
             const string anchored = "(() => { const pic = document.querySelector('img[data-picture]'); const before = document.querySelector('.tiptap > p'); const delta = pic.getBoundingClientRect().top - before.getBoundingClientRect().bottom; return pic.dataset.mode === 'overlay' && Math.abs(delta) <= 1 })()";
             Require(await Eval(wide, anchored) == "true" && await Eval(narrow, anchored) == "true", "same logical overlay position on both papers");

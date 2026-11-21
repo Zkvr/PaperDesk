@@ -108,31 +108,36 @@ public sealed class PaperCrumple : FrameworkElement
 
         var squeezeX = Smooth(progress / .61);
         var squeezeY = Smooth((progress - .055) / .62);
-        var drop = Smooth((progress - .79) / .21);
-        var wrinkle = Math.Sin(Math.PI * squeezeY);
+        var drop = Math.Pow(Math.Clamp((progress - .79) / .21, 0, 1), 2);
         var span = Math.Min(width, height);
         var radius = Math.Clamp(span * .18, 17, 45) * (1 - .24 * drop);
-        var center = new Point(width * (.52 + .16 * drop), height * (.49 + .64 * drop * drop));
+        var center = new Point(width * (.52 + .16 * drop), height * (.49 + .64 * drop));
         var from = new Point[Sheet.Length];
         var to = new Point[Sheet.Length];
+        var depths = new double[Sheet.Length];
         for (var index = 0; index < Sheet.Length; index++)
         {
             var point = Sheet[index];
             from[index] = new Point(point.X * width, point.Y * height);
             var axis = point - new Point(.5, .5);
-            var angle = Math.Atan2(axis.Y, axis.X) + .18 * Math.Sin(index * 2.31) - 1.12 * drop;
-            var distance = Math.Min(1, axis.Length * 1.85) * (1 + .22 * Math.Sin(index * 5.7));
+            var angle = Math.Atan2(axis.Y, axis.X);
+            var pinch = Smooth((progress - axis.Length * .25) / .52);
+            var ridge = Math.Tanh(2.1 * Math.Sin(axis.X * 15 + axis.Y * 11));
+            var crossRidge = Math.Tanh(1.8 * Math.Sin(axis.X * 9 - axis.Y * 17));
+            var fold = Math.Sin(Math.PI * pinch) * (ridge * .68 + crossRidge * .32);
+            var depth = depths[index] = fold * span * .21 + pinch * radius * ridge * .38;
+            angle += .27 * crossRidge * pinch - .9 * drop;
+            var distance = Math.Min(1, axis.Length * 1.85) * (1 + .20 * ridge * pinch);
             var knot = center + new Vector(Math.Cos(angle), Math.Sin(angle)) * (radius * distance);
-            // Alternate ridges buckle before the corners meet at the center.
             to[index] = new Point(
-                from[index].X + (knot.X - from[index].X) * squeezeX + Math.Sin(index * 2.6) * span * .13 * wrinkle,
-                from[index].Y + (knot.Y - from[index].Y) * squeezeY + Math.Cos(index * 1.7) * span * .12 * wrinkle);
+                from[index].X + (knot.X - from[index].X) * squeezeX + depth * .23,
+                from[index].Y + (knot.Y - from[index].Y) * squeezeY - depth * .42);
         }
 
         dc.PushOpacity(1 - Smooth((progress - .90) / .10));
         if (squeezeY > .35)
             dc.DrawEllipse(Shadow, null, center + new Vector(1, radius * .74), radius * 1.25, radius * .43);
-        foreach (var face in Faces)
+        foreach (var face in Faces.OrderBy(face => depths[face.A] + depths[face.B] + depths[face.C]))
         {
             var a = to[face.A];
             var b = to[face.B];
@@ -149,7 +154,8 @@ public sealed class PaperCrumple : FrameworkElement
             dc.Pop();
 
             var contrast = .23 * Smooth((progress - .015) / .14) + .77 * squeezeY;
-            var shade = area < 0 ? -.90 : face.Shade;
+            var slope = Math.Clamp((depths[face.A] + depths[face.B] - 2 * depths[face.C]) / (span * .26), -1, 1);
+            var shade = area < 0 ? -.90 : face.Shade * .32 + slope * .68;
             var alpha = (byte)Math.Clamp(Math.Abs(shade) * contrast * 152, 0, 152);
             var pigment = shade < 0 ? Color.FromArgb(alpha, 76, 53, 30) : Color.FromArgb(alpha, 255, 251, 230);
             var softPigment = Color.FromArgb((byte)(alpha * .27), pigment.R, pigment.G, pigment.B);

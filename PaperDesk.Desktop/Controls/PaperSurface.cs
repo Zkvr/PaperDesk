@@ -5,12 +5,9 @@ public sealed class PaperSurface : Decorator
 {
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(nameof(Fill), typeof(Brush), typeof(PaperSurface), new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(244, 229, 173)), FrameworkPropertyMetadataOptions.AffectsRender));
     public Brush Fill { get => (Brush)GetValue(FillProperty); set => SetValue(FillProperty, value); }
-    public static readonly DependencyProperty CurlLiftProperty = DependencyProperty.Register(
-        nameof(CurlLift), typeof(double), typeof(PaperSurface), new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsRender));
-    public double CurlLift { get => (double)GetValue(CurlLiftProperty); set => SetValue(CurlLiftProperty, value); }
-    public static readonly DependencyProperty DragPullProperty = DependencyProperty.Register(
-        nameof(DragPull), typeof(Vector), typeof(PaperSurface), new FrameworkPropertyMetadata(new Vector(), FrameworkPropertyMetadataOptions.AffectsRender));
-    public Vector DragPull { get => (Vector)GetValue(DragPullProperty); set => SetValue(DragPullProperty, value); }
+    private static readonly DependencyProperty PoseProperty = DependencyProperty.Register(
+        nameof(Pose), typeof(PaperPose), typeof(PaperSurface), new FrameworkPropertyMetadata(PaperPose.Flat, FrameworkPropertyMetadataOptions.AffectsRender));
+    internal PaperPose Pose { get => (PaperPose)GetValue(PoseProperty); set => SetValue(PoseProperty, value); }
     public static readonly DependencyProperty TextureProperty = DependencyProperty.Register(
         nameof(Texture), typeof(string), typeof(PaperSurface), new FrameworkPropertyMetadata("fibres", FrameworkPropertyMetadataOptions.AffectsRender));
     public string Texture { get => (string)GetValue(TextureProperty); set => SetValue(TextureProperty, value); }
@@ -20,6 +17,11 @@ public sealed class PaperSurface : Decorator
     public static readonly DependencyProperty PaperOpacityProperty = DependencyProperty.Register(
         nameof(PaperOpacity), typeof(double), typeof(PaperSurface), new FrameworkPropertyMetadata(1d, FrameworkPropertyMetadataOptions.AffectsRender));
     public double PaperOpacity { get => (double)GetValue(PaperOpacityProperty); set => SetValue(PaperOpacityProperty, value); }
+
+    internal static readonly DependencyProperty OutlineProperty = DependencyProperty.Register(
+        nameof(Outline), typeof(Pen), typeof(PaperSurface), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    internal Pen? Outline { get => (Pen?)GetValue(OutlineProperty); set => SetValue(OutlineProperty, value); }
+    internal bool ClipContentToPaper { get; set; }
 
     private static readonly DrawingBrush Fibres = CreateFibres();
     private static readonly DrawingBrush Linen = CreateLinen();
@@ -31,8 +33,6 @@ public sealed class PaperSurface : Decorator
         FaceLight.Freeze();
         RimLight.Freeze();
     }
-
-    internal static double BottomRightDragLift(Vector pull) => Math.Clamp(-Math.Min(0, pull.X) * .94 - Math.Min(0, pull.Y) * .94, 0, 1);
 
     internal void ApplyAppearance(Placement placement)
     {
@@ -66,32 +66,46 @@ public sealed class PaperSurface : Decorator
         if (w < 25 || h < 25) return;
 
         var span = Math.Min(w, h);
-        var pull = DragPull;
-        var left = Math.Max(0, pull.X);
-        var right = Math.Max(0, -pull.X);
-        var top = Math.Max(0, pull.Y);
-        var bottom = Math.Max(0, -pull.Y);
+        var motion = Pose;
+        var flex = motion.Flex;
+        var left = Math.Clamp(flex.X, 0, 1);
+        var right = Math.Clamp(-flex.X, 0, 1);
+        var top = Math.Clamp(flex.Y, 0, 1);
+        var bottom = Math.Clamp(-flex.Y, 0, 1);
+        var peel = Math.Clamp(motion.Peel, 0, 1);
+        var anchor = motion.Grip;
+        var bow = Math.Clamp(span * .12, 8, 32);
+        var peeking = peel * bow;
+        var bottomBow = bottom * bow * .5;
+        var topBow = top * bow * .65;
+        var anchorX = Math.Clamp(anchor.X * w, w * .08, w * .92);
+        var nearGlue = 1 - anchor.Y;
         var radius = Corners == "square" ? 0 : 10;
         var folded = Corners == "folded";
-        var topLeft = new Corner(0, 0, 1, 1, span, left * .64 + top * .92, radius);
-        var topRight = new Corner(w, 0, -1, 1, span, right * .64 + top * .92, radius);
-        var bottomRight = new Corner(w, h, -1, -1, span, Math.Max(CurlLift, BottomRightDragLift(pull)), folded ? 24 : radius, folded);
-        var bottomLeft = new Corner(0, h, 1, -1, span, left * .94 + bottom * .94, radius);
+        var topLeft = new Corner(0, 0, 1, 1, span, left * .48 + top * .72, radius);
+        var topRight = new Corner(w, 0, -1, 1, span, right * .48 + top * .72, radius);
+        var bottomLeft = new Corner(0, h, 1, -1, span, left * .98 + bottom * .96 + peel * (.34 + .58 * anchor.X), radius);
+        var bottomRight = new Corner(w, h, -1, -1, span,
+            right * .98 + bottom * .96 + peel * (.34 + .58 * (1 - anchor.X)), folded ? 24 : radius, folded);
 
         var paper = new StreamGeometry();
         using (var g = paper.Open())
         {
             g.BeginFigure(topLeft.Horizontal, true, true);
-            g.LineTo(topRight.Horizontal, true, false);
+            g.BezierTo(new Point(w * .33, topBow * Math.Abs(.33 - anchor.X)), new Point(w * .66, topBow * Math.Abs(.66 - anchor.X)),
+                topRight.Horizontal, true, false);
             g.QuadraticBezierTo(topRight.OuterControl, topRight.Vertical, true, false);
-            g.LineTo(bottomRight.Vertical, true, false);
+            g.BezierTo(new Point(w - right * bow * (.25 + nearGlue * .27), h * .35),
+                new Point(w - right * bow * (.20 + nearGlue * .43), h * .72), bottomRight.Vertical, true, false);
             g.QuadraticBezierTo(bottomRight.OuterControl, bottomRight.Horizontal, true, false);
-            g.BezierTo(new Point(w * .62, h - .8), new Point(w * .38, h + .35), bottomLeft.Horizontal, true, false);
+            DrawBottom(g, bottomRight.Horizontal, bottomLeft.Horizontal);
             g.QuadraticBezierTo(bottomLeft.OuterControl, bottomLeft.Vertical, true, false);
-            g.LineTo(topLeft.Vertical, true, false);
+            g.BezierTo(new Point(left * bow * (.20 + nearGlue * .43), h * .72),
+                new Point(left * bow * (.25 + nearGlue * .27), h * .35), topLeft.Vertical, true, false);
             g.QuadraticBezierTo(topLeft.OuterControl, topLeft.Horizontal, true, false);
         }
         paper.Freeze();
+        if (ClipContentToPaper && Child is { } content) content.Clip = paper;
         var translucent = PaperOpacity < 1;
         if (translucent) dc.PushOpacity(PaperOpacity);
         dc.DrawGeometry(Fill, null, paper);
@@ -99,6 +113,7 @@ public sealed class PaperSurface : Decorator
         var face = new Rect(0, 0, w, h);
         dc.DrawRectangle(FaceLight, null, face);
         if (Texture != "smooth") dc.DrawRectangle(Texture == "linen" ? Linen : Fibres, null, face);
+        if (peelingEdge()) DrawLiftedEdge();
         DrawFold(dc, topLeft);
         DrawFold(dc, topRight);
         DrawFold(dc, bottomLeft);
@@ -106,6 +121,42 @@ public sealed class PaperSurface : Decorator
         dc.Pop();
         dc.DrawGeometry(null, RimLight, paper);
         if (translucent) dc.Pop();
+        if (Outline is { } outline)
+        {
+            dc.PushClip(paper);
+            dc.DrawGeometry(null, outline, paper);
+            dc.Pop();
+        }
+
+        bool peelingEdge() => peeking > .25;
+
+        void DrawBottom(StreamGeometryContext geometry, Point rightEdge, Point leftEdge)
+        {
+            if (!peelingEdge())
+            {
+                geometry.BezierTo(new Point(w * .62, h - .8 - bottomBow), new Point(w * .38, h + .35 - bottomBow), leftEdge, true, false);
+                return;
+            }
+            var gripEdge = new Point(anchorX, h - Math.Min(1.5, bottomBow));
+            geometry.BezierTo(new Point(rightEdge.X, h - peeking * (1 - anchor.X)),
+                new Point(anchorX + (rightEdge.X - anchorX) * .33, h - peeking * .36), gripEdge, true, false);
+            geometry.BezierTo(new Point(anchorX - (anchorX - leftEdge.X) * .33, h - peeking * .36),
+                new Point(leftEdge.X, h - peeking * anchor.X), leftEdge, true, false);
+        }
+
+        void DrawLiftedEdge()
+        {
+            var edge = new StreamGeometry();
+            using (var geometry = edge.Open())
+            {
+                geometry.BeginFigure(bottomRight.Horizontal, true, true);
+                DrawBottom(geometry, bottomRight.Horizontal, bottomLeft.Horizontal);
+                geometry.QuadraticBezierTo(new Point(anchorX, h - peeking * 1.9), bottomRight.Horizontal, true, false);
+            }
+            var light = new LinearGradientBrush(Color.FromArgb((byte)(80 * peel), 82, 66, 44),
+                Color.FromArgb((byte)(148 * peel), 255, 249, 222), new Point(0, 0), new Point(0, 1));
+            dc.DrawGeometry(light, null, edge);
+        }
     }
 
     private static void DrawFold(DrawingContext dc, Corner corner)

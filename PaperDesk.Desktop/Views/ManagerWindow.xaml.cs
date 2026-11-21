@@ -43,7 +43,7 @@ public partial class ManagerWindow : Window
     {
         var previous = SelectedIds().ToHashSet();
         loading = true;
-        vm.Refresh();
+        vm.Refresh(desk.RefreshingEdits);
         if (vm.Filter == "conflict" && !vm.HasConflicts)
         {
             AllNotesSection.IsChecked = true;
@@ -70,8 +70,11 @@ public partial class ManagerWindow : Window
         if (EditorCrumple?.IsPlaying == true) return;
         var row = selected.HasValue ? desk.Store.Find(selected.Value) : null; loading = true;
         UpdateEditorWidth(row != null);
-        if (EditTitle.Text != (row?.Note.Title ?? "")) EditTitle.Text = row?.Note.Title ?? "";
-        if (EditBody.Text != (row?.Note.Body ?? "")) { var pos = EditBody.CaretIndex; EditBody.Text = row?.Note.Body ?? ""; EditBody.CaretIndex = Math.Min(pos, EditBody.Text.Length); }
+        var draft = row == null ? null : desk.UnsavedDraft(desk.Store, row.Note.Id);
+        var title = draft?.Title ?? row?.Note.Title ?? "";
+        var body = draft?.Body ?? row?.Note.Body ?? "";
+        if (EditTitle.Text != title) EditTitle.Text = title;
+        if (EditBody.Text != body) { var pos = EditBody.CaretIndex; EditBody.Text = body; EditBody.CaretIndex = Math.Min(pos, EditBody.Text.Length); }
         shownTitle = EditTitle.Text;
         shownBody = EditBody.Text;
         FormatButton.IsEnabled = EditTitle.IsEnabled = EditBody.IsEnabled = row != null;
@@ -102,7 +105,7 @@ public partial class ManagerWindow : Window
             MoreButton.Visibility = Visibility.Visible;
             RestoreButton.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
         }
-        var rejected = row != null && desk.Store.RejectedNotes().Contains(row.Note.Id);
+        var rejected = row != null && desk.Store.IsRejected(row.Note.Id);
         EditorHint.Visibility = row?.Conflict != null || rejected ? Visibility.Visible : Visibility.Collapsed;
         EditorHint.Text = row?.Conflict != null ? L.T("Две версии сохранены. Выберите вариант ниже.")
             : L.T("Правка осталась на этом устройстве. После редактирования отправим её снова.");
@@ -167,7 +170,7 @@ public partial class ManagerWindow : Window
         var ids = SelectedIds();
         if (purging || ids.Length == 0) return;
         var store = desk.Store;
-        if (MessageBox.Show(this, L.F("Удалить выбранные заметки навсегда ({0})? Восстановить их будет нельзя.", ids.Length),
+        if (MessageBox.Show(this, L.F("Удалить выбранные заметки навсегда ({0})? Более ранние резервные копии могут содержать эти заметки.", ids.Length),
             L.T("Окончательное удаление"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes ||
             !ReferenceEquals(store, desk.Store)) return;
         purging = true;
@@ -217,7 +220,7 @@ public partial class ManagerWindow : Window
     private void EditorChanged(object sender, TextChangedEventArgs e)
     {
         if (loading || selected is not Guid id) return;
-        desk.Store.SaveText(id, sender == EditTitle && EditTitle.Text != shownTitle ? EditTitle.Text : null,
+        desk.SaveEditorText(desk.Store, id, sender == EditTitle && EditTitle.Text != shownTitle ? EditTitle.Text : null,
             sender == EditBody && EditBody.Text != shownBody ? EditBody.Text : null, shownTitle, shownBody);
         shownTitle = EditTitle.Text;
         shownBody = EditBody.Text;
@@ -370,7 +373,8 @@ public partial class ManagerWindow : Window
     {
         var actions = new List<(string, RoutedEventHandler)>
         {
-            (L.T("Импортировать заметки…"), ImportClick), (L.T("Экспортировать копию…"), ExportClick)
+            (L.T("Импортировать заметки…"), ImportClick), (L.T("Экспортировать копию…"), ExportClick),
+            (L.T("Восстановить резервную копию…"), RestoreBackupClick)
         };
         OpenMenu((Button)sender, actions);
     }
@@ -458,6 +462,42 @@ public partial class ManagerWindow : Window
         if (selected is Guid id && desk.Store.Find(id) is { Conflict: not null })
             new ConflictWindow(desk, id) { Owner = this }.ShowDialog();
     }
+    private async void RestoreBackupClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = L.T("Восстановить резервную копию…"),
+            Filter = L.T("Резервная копия JSON|*.json"),
+            InitialDirectory = Directory.Exists(desk.BackupFolder) ? desk.BackupFolder : desk.DataRoot,
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            var file = dialog.FileName;
+            var root = desk.DataRoot;
+            string restored;
+            try { restored = await Task.Run(() => ProfileBackups.Restore(file, root)); }
+            catch (LargeBackupException ex)
+            {
+                if (MessageBox.Show(this, ex.Message + "\n\n" +
+                    L.T("Для больших копий потребуется больше памяти. Импортировать выбранные файлы?"),
+                    dialog.Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+                restored = await Task.Run(() => ProfileBackups.Restore(file, root, allowLargeBackup: true));
+            }
+            if (MessageBox.Show(this, L.T("Копия восстановлена в отдельный профиль. Открыть его?") + "\n\n" + restored,
+                    "PaperDesk", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
+            var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+            start.ArgumentList.Add("--data"); start.ArgumentList.Add(restored);
+            using var process = System.Diagnostics.Process.Start(start);
+        }
+        catch (Exception error) when (IsFileOperationError(error) || error is System.ComponentModel.Win32Exception)
+        {
+            ErrorLog.Write(desk.DataRoot, ErrorLog.Area.Import, error);
+            MessageBox.Show(this, L.T("Не удалось восстановить или открыть копию.") + "\n\n" + error.Message, "PaperDesk",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void ExportClick(object sender, RoutedEventArgs e)
     {
         var store = desk.Store;

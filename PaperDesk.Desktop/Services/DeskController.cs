@@ -27,8 +27,17 @@ public sealed class DeskController : IDisposable
     private readonly Forms.ToolStripMenuItem summonItem;
     private ManagerWindow? manager;
     private SettingsWindow? settingsWindow;
+    private readonly Dictionary<(NoteStore, Guid), UnsavedNoteWindow> unsavedEdits = [];
+    internal bool HasUnsavedEdits => unsavedEdits.Count > 0;
     private readonly DispatcherTimer refresh;
-    private int refreshQueued;
+    private readonly DispatcherTimer backupTimer;
+    private Task? backupTask;
+    private long changesSinceStart, backupRevision;
+    internal string BackupFolder { get; private set; } = "";
+    private readonly object refreshGate = new();
+    private readonly HashSet<Guid> editedNotes = [];
+    private bool refreshQueued, fullRefresh;
+    internal IReadOnlyList<Guid>? RefreshingEdits { get; private set; }
     private bool disposed;
     private IReadOnlyList<Note>? undo;
     private bool notesSuppressed;
@@ -37,14 +46,26 @@ public sealed class DeskController : IDisposable
     public DeskController(string root)
     {
         DataRoot = root; Directory.CreateDirectory(root);
+        backupTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMinutes(1) };
+        backupTimer.Tick += (_, _) => QueueBackup();
         refresh = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(180) };
         refresh.Tick += (_, _) =>
         {
             refresh.Stop();
-            Interlocked.Exchange(ref refreshQueued, 0);
+            Guid[]? edits;
+            lock (refreshGate)
+            {
+                edits = fullRefresh ? null : editedNotes.ToArray();
+                editedNotes.Clear();
+                fullRefresh = refreshQueued = false;
+            }
             if (disposed) return;
-            ReconcileWindows();
-            Changed?.Invoke();
+            if (edits == null) ReconcileWindows();
+            else foreach (var id in edits)
+                if (stickies.TryGetValue(id, out var window) && !window.IsCrumpling) window.RefreshEditedContent();
+            RefreshingEdits = edits;
+            try { Changed?.Invoke(); }
+            finally { RefreshingEdits = null; }
         };
         var settingsPath = Path.Combine(root, "settings.json");
         var newProfile = !File.Exists(settingsPath) && !Directory.Exists(Path.Combine(root, "profiles"));
@@ -84,6 +105,7 @@ public sealed class DeskController : IDisposable
     }
     public void Start()
     {
+        backupTimer.Start();
         notesSuppressed = !Settings.ShowNotesAtStartup;
         ReconcileWindows();
         Status = L.T("Локальный режим • сохранено на диске");
@@ -92,17 +114,48 @@ public sealed class DeskController : IDisposable
     {
         undo = null;
         const string profile = "local";
-        Store = new NoteStore(Path.Combine(DataRoot, "profiles", profile, "notes.db"), user);
-        Store.Changed += StoreChanged;
+        var folder = Path.Combine(DataRoot, "profiles", profile);
+        Store = new NoteStore(Path.Combine(folder, "notes.db"), user);
+        BackupFolder = Path.Combine(folder, "backups");
+        Interlocked.Increment(ref changesSinceStart);
+        Store.Updated += StoreChanged;
     }
-    private void StoreChanged()
+    private void StoreChanged(Guid? editedId)
     {
-        QueueRefresh();
+        Interlocked.Increment(ref changesSinceStart);
+        QueueRefresh(editedId);
     }
 
-    private void QueueRefresh()
+    private void QueueBackup()
     {
-        if (Interlocked.Exchange(ref refreshQueued, 1) != 0) return;
+        var revision = Interlocked.Read(ref changesSinceStart);
+        if (disposed || revision == Interlocked.Read(ref backupRevision) || backupTask is { IsCompleted: false }) return;
+        var store = Store;
+        var folder = BackupFolder;
+        backupTask = Task.Run(() =>
+        {
+            try
+            {
+                if (ProfileBackups.Capture(store, folder, DateTimeOffset.UtcNow))
+                    Interlocked.Exchange(ref backupRevision, revision);
+            }
+            catch (ObjectDisposedException) { } // The account changed before the backup began.
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+            {
+                ErrorLog.Write(DataRoot, ErrorLog.Area.Backup, error);
+            }
+        });
+    }
+
+    private void QueueRefresh(Guid? editedId = null)
+    {
+        lock (refreshGate)
+        {
+            if (editedId is Guid id) editedNotes.Add(id);
+            else fullRefresh = true;
+            if (refreshQueued) return;
+            refreshQueued = true;
+        }
         if (refresh.Dispatcher.CheckAccess()) Schedule();
         else refresh.Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)Schedule);
 
@@ -197,7 +250,7 @@ public sealed class DeskController : IDisposable
         if (stickies.TryGetValue(id, out var window)) { window.Activate(); window.FocusEditor(); }
     }
 
-    internal bool PlaceOnDesktop(Guid id, Point screenPoint, Matrix fromDevice)
+    internal bool PlaceOnDesktop(Guid id, Point screenPoint, Matrix fromDevice, Point? grip = null)
     {
         if (draggedSheet != null || Store.Find(id)?.Note is not { ArchivedAt: null, DeletedAt: null }) return false;
         if (stickies.TryGetValue(id, out var previous))
@@ -207,20 +260,16 @@ public sealed class DeskController : IDisposable
         }
 
         var p = Store.GetPlacement(id);
-        var screen = Forms.Screen.FromPoint(new System.Drawing.Point((int)screenPoint.X, (int)screenPoint.Y));
-        var work = screen.WorkingArea;
-        var area = Rect.Transform(new Rect(work.Left, work.Top, work.Width, work.Height), fromDevice);
-        var drop = fromDevice.Transform(screenPoint);
-        var x = Math.Clamp(drop.X + 10, area.Left, Math.Max(area.Left, area.Right - p.Width));
-        var y = Math.Clamp(drop.Y + 12, area.Top, Math.Max(area.Top, area.Bottom - p.Height));
-        Store.SavePlacement(p with { Visible = true, StackId = null, X = x, Y = y });
+        var size = new Size(Math.Clamp(p.Width, StickyLayout.MinWidth, 1600), Math.Clamp(p.Height, StickyLayout.MinHeight, 1400));
+        var bounds = StickyLayout.DesktopDropBounds(screenPoint, fromDevice, size, grip);
+        Store.SavePlacement(p with { Visible = true, StackId = null, X = bounds.Left, Y = bounds.Top, Width = size.Width, Height = size.Height });
         notesSuppressed = false;
-        ReconcileWindows();
+        ReconcileWindows(animateOpening: false);
         if (stickies.TryGetValue(id, out var window))
         {
             var toDevice = fromDevice;
             toDevice.Invert();
-            var pixel = toDevice.Transform(new Point(x, y));
+            var pixel = toDevice.Transform(bounds.TopLeft);
             Native.MoveWithoutActivate(new WindowInteropHelper(window).Handle, (int)Math.Round(pixel.X), (int)Math.Round(pixel.Y));
         }
         Changed?.Invoke();
@@ -231,12 +280,16 @@ public sealed class DeskController : IDisposable
     {
         if (!Settings.StackedNotes || draggedSheet != null) return null;
         var hit = Native.WindowFromPoint(point);
-        if (hit == 0) return null;
-        const uint rootWindow = 2;
-        var root = Native.GetAncestor(hit, rootWindow);
-        return stickies.Values.FirstOrDefault(window => window.NoteId != id && window.IsVisible && !window.IsCrumpling &&
-            new WindowInteropHelper(window).Handle == (root == 0 ? hit : root) &&
-            window.PaperScreenBounds().Contains(new Point(point.X, point.Y)) && IsLiveSheet(window));
+        // On the desktop layer Explorer is the root HWND. Look for the sheet along the parent chain.
+        const uint parentWindow = 1;
+        for (var handle = hit; handle != 0; handle = Native.GetAncestor(handle, parentWindow))
+        {
+            if (HwndSource.FromHwnd(handle)?.RootVisual is not StickyWindow window) continue;
+            return window.NoteId != id && stickies.GetValueOrDefault(window.NoteId) == window && window.IsVisible &&
+                !window.IsCrumpling && window.PaperScreenBounds().Contains(new Point(point.X, point.Y)) && IsLiveSheet(window)
+                ? window : null;
+        }
+        return null;
     }
 
     internal bool StackCard(Guid id, StickyWindow target)
@@ -256,6 +309,7 @@ public sealed class DeskController : IDisposable
         Store.SavePlacements(placements, stack);
         target.StackId = stack.Id;
         ReconcileWindows(animateOpening: false);
+        target.SettleOnStack();
         Changed?.Invoke();
         return true;
     }
@@ -331,18 +385,13 @@ public sealed class DeskController : IDisposable
         dropTarget?.HighlightDrop(true);
     }
 
-    internal bool SnapSheet(StickyWindow source)
+    internal Vector? SnapOffset(StickyWindow source, Rect bounds)
     {
-        if (!Settings.SnapNotes || dropTarget != null || source.SheetFrameBounds() is not { IsEmpty: false } bounds ||
-            PresentationSource.FromVisual(source)?.CompositionTarget is not { } composition) return false;
+        if (!Settings.SnapNotes || dropTarget != null || bounds.IsEmpty) return null;
         var neighbours = stickies.Values.Where(window => window != source && window.IsVisible && !window.IsCrumpling)
             .Select(window => window.SheetFrameBounds());
         var dpi = VisualTreeHelper.GetDpi(source).DpiScaleX;
-        if (PaperDrag.SnapOffset(bounds, neighbours, 8 * dpi, 12 * dpi) is not Vector offset) return false;
-        var movement = composition.TransformFromDevice.Transform(offset);
-        if (movement.X != 0) source.Left += movement.X;
-        if (movement.Y != 0) source.Top += movement.Y;
-        return true;
+        return PaperDrag.SnapOffset(bounds, neighbours, 8 * dpi, 12 * dpi);
     }
 
     private StickyWindow? FindDropTarget(StickyWindow source, Point pointer) =>
@@ -411,21 +460,20 @@ public sealed class DeskController : IDisposable
             throw;
         }
 
-        source.StackId = destination;
         if (target != null)
         {
-            source.Left = target.Left;
-            source.Top = target.Top;
-            source.Width = target.Width;
-            source.Height = target.Height;
-            target.CloseFromController();
+            // Keep the destination HWND and its editor in place as the top note changes.
+            source.CloseFromController();
+            target.StackId = destination;
         }
+        else source.StackId = destination;
         if (revealed != null)
         {
             revealed.IsHitTestVisible = true;
             RegisterSticky(revealed);
         }
         ReconcileWindows(animateOpening: false);
+        target?.SettleOnStack();
     }
 
     private bool IsLiveSheet(StickyWindow window) => Store.GetPlacement(window.NoteId).Visible &&
@@ -680,6 +728,41 @@ public sealed class DeskController : IDisposable
         settingsWindow.Activate();
     }
     public void FlushWindows() { foreach (var w in stickies.Values.ToList()) w.Flush(); }
+
+    internal NoteDraft? UnsavedDraft(NoteStore store, Guid id) => unsavedEdits.GetValueOrDefault((store, id))?.Draft;
+
+    internal void SaveEditorText(NoteStore store, Guid id, string? title, string? body, string shownTitle, string shownBody,
+        IReadOnlyDictionary<Guid, NoteImageLayout>? layouts = null)
+    {
+        if (title == null && body == null) return;
+        var draft = new NoteDraft(title, body, shownTitle, shownBody, layouts);
+        var pending = UnsavedDraft(store, id);
+        SaveDraft(store, id, pending == null ? draft : pending.Add(draft));
+    }
+
+    private void SaveDraft(NoteStore store, Guid id, NoteDraft draft)
+    {
+        var key = (store, id);
+        var existing = unsavedEdits.GetValueOrDefault(key);
+        try
+        {
+            if (store != Store || !store.SaveText(id, draft.Title, draft.Body, draft.ShownTitle, draft.ShownBody, draft.Layouts))
+                throw new IOException("The active profile no longer contains the note.");
+            existing?.Complete();
+        }
+        catch (Exception error) when (error is Microsoft.Data.Sqlite.SqliteException or IOException or UnauthorizedAccessException)
+        {
+            if (existing != null) { existing.UpdateDraft(draft); return; }
+            ErrorLog.Write(DataRoot, ErrorLog.Area.Save, error);
+            var recovery = new UnsavedNoteWindow(draft, () =>
+            {
+                if (unsavedEdits.TryGetValue(key, out var window)) SaveDraft(store, id, window.Draft);
+            });
+            unsavedEdits.Add(key, recovery);
+            recovery.Closed += (_, _) => unsavedEdits.Remove(key);
+            recovery.Show();
+        }
+    }
     internal void PrepareForExit()
     {
         foreach (var window in stickies.Values) window.PreservePlacementOnClose();
@@ -687,6 +770,10 @@ public sealed class DeskController : IDisposable
     }
     internal void Exit()
     {
+        if (HasUnsavedEdits &&
+            MessageBox.Show(L.T("Есть несохранённые черновики. Завершить работу PaperDesk?"), "PaperDesk", MessageBoxButton.YesNo,
+                MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        foreach (var window in unsavedEdits.Values.ToArray()) window.Complete();
         PrepareForExit();
         Application.Current.Shutdown();
     }
@@ -788,7 +875,7 @@ public sealed class DeskController : IDisposable
     }
     public void Dispose()
     {
-        if (disposed) return; disposed = true; refresh.Stop(); FlushWindows(); CloseStickies(); tray.Visible = false; tray.Dispose(); hotkey.Dispose(); summonHotkey.Dispose();
+        if (disposed) return; disposed = true; refresh.Stop(); backupTimer.Stop(); FlushWindows(); CloseStickies(); tray.Visible = false; tray.Dispose(); hotkey.Dispose(); summonHotkey.Dispose();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
         SystemParameters.StaticPropertyChanged -= SystemParametersChanged;

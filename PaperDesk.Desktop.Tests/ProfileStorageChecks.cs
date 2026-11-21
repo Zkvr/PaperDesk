@@ -21,6 +21,7 @@ internal static class ProfileStorageChecks
             "An explicit profile must take precedence even at startup");
         RequireThrows<ArgumentException>(() => ProfileStorage.Resolve(["--data"], app, local));
         Console.WriteLine("PASS portable, installed and explicit profile selection");
+        CheckBackups(testRoot);
 
         var oldDb = Path.Combine(legacy, "profiles", "local", "notes.db");
         Directory.CreateDirectory(Path.GetDirectoryName(oldDb)!);
@@ -35,6 +36,8 @@ internal static class ProfileStorageChecks
         using (var fixture = new NoteStore(fixtureDb))
         {
             fixture.Save(note);
+            var backupsFolder = Path.Combine(Path.GetDirectoryName(oldDb)!, "backups");
+            Require(ProfileBackups.Capture(fixture, backupsFolder, DateTimeOffset.UtcNow), "Create an existing automatic backup");
             File.Copy(fixtureDb, oldDb);
             File.Copy(fixtureDb + "-wal", oldDb + "-wal");
         }
@@ -47,6 +50,8 @@ internal static class ProfileStorageChecks
         ProfileStorage.Migrate(installed, legacy);
 
         var migratedDb = Path.Combine(installed, "profiles", "local", "notes.db");
+        Require(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(migratedDb)!, "backups"),
+            ProfileBackups.SearchPattern).Length == 1, "Migration must retain the automatic snapshots");
         using (var migrated = new NoteStore(migratedDb))
         {
             Require(migrated.Find(note.Id)?.Note.Body == note.Body, "Migration must include committed WAL writes");
@@ -90,6 +95,43 @@ internal static class ProfileStorageChecks
         RequireThrows<IOException>(() => ProfileStorage.Migrate(retryRoot, legacy));
         Console.WriteLine("PASS failed, busy and conflicting profiles are preserved and migration can be retried");
         return 0;
+    }
+
+    private static void CheckBackups(string root)
+    {
+        var db = Path.Combine(root, "backup-test", "notes.db");
+        var copies = Path.Combine(Path.GetDirectoryName(db)!, "backups");
+        using var store = new NoteStore(db);
+        var note = new Note { Body = "historical text" };
+        store.Save(note);
+        var group = Guid.NewGuid();
+        store.SaveStack(new DesktopStack(group, "Backup fixture", 100, 100, 310, 330, note.Id));
+        store.SavePlacement(new Placement { NoteId = note.Id, StackId = group, Color = "#FFB9BB", Visible = true });
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jIZkAAAAASUVORK5CYII=");
+        Require(store.AddImages(note.Id, [png]), "Add a real PNG to the backup fixture");
+        var time = new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.Zero);
+        for (var slot = 0; slot < 8; slot++)
+            Require(ProfileBackups.Capture(store, copies, time.AddHours(slot)), "Save each hourly snapshot");
+        Require(!ProfileBackups.Capture(store, copies, time.AddHours(7).AddMinutes(59)), "Avoid duplicate snapshots within an hour");
+        var files = Directory.GetFiles(copies, "*.json").OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        Require(files.Length == 7, "Rotate on a successful eighth snapshot");
+
+        store.Save(note with { Body = "current text" });
+        var large = Path.Combine(copies, "oversize.json");
+        using (var file = File.Create(large)) file.SetLength(1L + LargeBackupException.LimitMiB * 1024L * 1024);
+        RequireThrows<LargeBackupException>(() => ProfileBackups.Restore(large, root));
+        Require(!Directory.EnumerateFileSystemEntries(Path.Combine(root, "restored")).Any(),
+            "Declining a large backup must leave no partial profile");
+        File.Delete(large);
+        var restored = ProfileBackups.Restore(files[0], root);
+        using var recovered = new NoteStore(Path.Combine(restored, "profiles", "local", "notes.db"));
+        Require(recovered.Find(note.Id)?.Note.Body == "historical text" && recovered.GetPlacement(note.Id).Color == "#FFB9BB",
+            "Restore text and appearance into a separate profile");
+        Require(recovered.GetStack(group)?.ActiveNoteId == note.Id &&
+            recovered.ReadImage(note.Id, recovered.ImageIds(note.Id).Single())!.SequenceEqual(png),
+            "Restore the original stack and attachment into the new profile");
+        Require(store.Find(note.Id)?.Note.Body == "current text", "Existing notes must not be modified");
+        Console.WriteLine("PASS rotating automatic backups restore notes and appearance to an independent profile");
     }
 
     private static void Require(bool condition, string message)

@@ -98,6 +98,13 @@ internal static class ProfileStorage
             CopyFile(database + "-wal", copiedDb + "-wal");
             CopyFile(database + "-journal", copiedDb + "-journal");
             using var checkedStore = new NoteStore(copiedDb);
+            var snapshots = Path.Combine(profile, "backups");
+            if (Exists(snapshots, directory: true))
+            {
+                var copies = Directory.CreateDirectory(Path.Combine(copiedProfile.FullName, "backups"));
+                foreach (var backup in Directory.EnumerateFiles(snapshots, ProfileBackups.SearchPattern))
+                    CopyFile(backup, Path.Combine(copies.FullName, Path.GetFileName(backup)));
+            }
         }
     }
 

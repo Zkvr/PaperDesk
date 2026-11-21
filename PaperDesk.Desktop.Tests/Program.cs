@@ -15,7 +15,7 @@ using PaperDesk.Desktop.Views;
 using System.Windows.Interop;
 using System.Windows.Threading;
 
-static class UiChecks
+static partial class UiChecks
 {
     [STAThread] static int Main(string[] args)
     {
@@ -40,6 +40,7 @@ static class UiChecks
         var app=new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("pack://application:,,,/PaperDesk;component/Controls/Theme.xaml") });
         if (englishAppearance || args is ["--appearance", _]) return CheckAppearance(args[1], englishAppearance);
+        if (args is ["--paper-bend", var bendFolder]) { CheckPaperBend(bendFolder, captureMotion: true); return 0; }
         if (args is ["--performance", var performanceFolder]) return PerformanceChecks.Run(performanceFolder);
         if (args is ["--idle-render", var idleFolder, "web" or "native", "software" or "default"])
             return PerformanceChecks.MeasureIdleRender(idleFolder, web: args[2] == "web", software: args[3] == "software");
@@ -56,7 +57,7 @@ static class UiChecks
         var body=new NoteBodyEditor { Width=270,Height=180,FontSize=17,Text="☐ В банк\n☑ В сервис\nОбычная строка" };
         Layout(body);var boxes=Descendants(body).OfType<CheckBox>().ToList();
         Require(boxes.Count==2,"Unicode markers must become real CheckBox controls");
-        var folder=args.Length>0?args[0]:Path.Combine(AppContext.BaseDirectory,"test-artifacts");Directory.CreateDirectory(folder);
+        var folder=args.Length>0?Path.GetFullPath(args[0]):Path.Combine(AppContext.BaseDirectory,"test-artifacts");Directory.CreateDirectory(folder);
         using var store=new NoteStore(Path.Combine(folder,"ui-checks.db"));
         var note=new Note{Body=body.Text};store.Save(note);body.TextChanged+=(_,_)=>store.Save(store.Find(note.Id)!.Note with{Body=body.Text});
         boxes[0].IsChecked=true;boxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -208,12 +209,34 @@ static class UiChecks
             reversed == new Rect(440, 260, 240, 220) && reverseSpeed.X < 0 && reverseSpeed.Y < 0,
             "Reversing the cursor must return the window to the original anchor without drift");
         Console.WriteLine("PASS repeated frame samples cannot move the window or feed the drag animation");
-        var pin = PaperDesk.Desktop.Views.StickyWindow.DragPin;
-        var rightSwing = PaperDesk.Desktop.Views.StickyWindow.SwingAngle(1, 204, 152, new Thickness(8), .925, .963);
-        var leftSwing = PaperDesk.Desktop.Views.StickyWindow.SwingAngle(-1, 204, 152, new Thickness(8), .925, .963);
-        Require(pin.X == .5 && pin.Y < .1 && rightSwing > 4 && Math.Abs(leftSwing + rightSwing) < .01,
-            "A compact sheet must visibly swing both ways around the same top-center pin");
-        Console.WriteLine("PASS the sheet swings both ways around a fixed top-center pin");
+        var pin = new Point(.23, .96);
+        var peelMotion = new PaperMotion();
+        peelMotion.Hold(pin, peel: true);
+        peelMotion.Pull(new Vector(0, -360), .75);
+        for (var tick = 0; tick < 12; tick++) peelMotion.Advance(1d / 120, tick / 120d);
+        var lifted = peelMotion.Pose;
+        Require(lifted.Grip == pin && lifted.Peel > .45 && !peelMotion.Detached,
+            "A short peel raises the loose edge while grip and adhesion stay in place");
+        peelMotion.Pull(new Vector(100, -500), 1.2);
+        Require(peelMotion.Detached, "After tension overcomes the adhesive, the sheet must be free");
+        peelMotion.Pull(new Vector(30, 380), .2);
+        Require(peelMotion.Detached, "Changing direction must not reattach an already free sheet");
+        peelMotion.LetGo();
+        var running = true;
+        for (var tick = 0; tick < 60 && running; tick++) running = peelMotion.Advance(1d / 60, tick / 60d);
+        Require(!running && peelMotion.Pose is { Flex: { Length: 0 }, Peel: 0 },
+            "A released paper must settle exactly flat and stop requesting frames");
+        var halfRate = new PaperMotion();
+        var fullRate = new PaperMotion();
+        halfRate.Hold(pin, peel: true); fullRate.Hold(pin, peel: true);
+        halfRate.Pull(new Vector(480, 220), .5);
+        fullRate.Pull(new Vector(480, 220), .5);
+        for (var i = 0; i < 6; i++) halfRate.Advance(1d / 60, 0);
+        for (var i = 0; i < 12; i++) fullRate.Advance(1d / 120, 0);
+        Require((halfRate.Pose.Flex - fullRate.Pose.Flex).Length < .001 && Math.Abs(halfRate.Pose.Peel - fullRate.Pose.Peel) < .001,
+            "60 Hz and 120 Hz must produce the same sheet pose for the same pull");
+        Console.WriteLine("PASS an off-center grip, progressive adhesion and a bounded settle with no idle frames");
+        CheckPaperBend(folder);
         var compactPaper=new PaperSurface{Width=StickyLayout.MinWidth-16,Height=StickyLayout.MinHeight-28,Fill=PaperPalette.Brush("#F4E5AD")};
         var compactContent=new Grid();foreach(var height in new[]{new GridLength(32),GridLength.Auto,new GridLength(1,GridUnitType.Star),GridLength.Auto})compactContent.RowDefinitions.Add(new RowDefinition{Height=height});
         var compactToolbar=new Grid();var toolbarButtons=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right};foreach(var caption in new[]{"⌖","○","•••","−","\uE74D","×"})toolbarButtons.Children.Add(new Button{Content=caption,Style=(Style)app.FindResource("PaperButton"),FontFamily=new FontFamily(caption=="\uE74D"?"Segoe MDL2 Assets":"Segoe UI")});compactToolbar.Children.Add(toolbarButtons);compactContent.Children.Add(compactToolbar);
@@ -245,14 +268,15 @@ static class UiChecks
         var motionPaper = new PaperSurface { Width = 210, Height = 175, Fill = PaperPalette.Brush("#F4E5AD") };
         Layout(motionPaper);
         var restingAlpha = CornerAlpha(motionPaper);
-        var curl = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(1));
-        var clock = (AnimationClock)curl.CreateClock(true);
-        motionPaper.ApplyAnimationClock(PaperSurface.CurlLiftProperty, clock);
-        clock.Controller!.SeekAlignedToLastTick(TimeSpan.FromMilliseconds(950), TimeSeekOrigin.BeginTime);
+        var landing = new PaperMotion();
+        landing.Land(PaperPose.Flat with { Flex = new Vector(-.5, -.5), Peel = .62 });
+        motionPaper.Pose = landing.Pose;
         Layout(motionPaper);
         var liftedAlpha = CornerAlpha(motionPaper);
-        Require(restingAlpha > liftedAlpha + 100, $"Lifting the corner must visibly change the sheet silhouette ({restingAlpha} to {liftedAlpha}, lift {motionPaper.CurlLift:0.00})");
-        motionPaper.ApplyAnimationClock(PaperSurface.CurlLiftProperty, null);
+        Require(restingAlpha > liftedAlpha + 100, $"Lifting the corner must visibly change the sheet silhouette ({restingAlpha} to {liftedAlpha})");
+        for (var frameIndex = 0; frameIndex < 60; frameIndex++)
+            if (!landing.Advance(1d / 60, 1)) break;
+        motionPaper.Pose = landing.Pose;
         Layout(motionPaper);
         Require(CornerAlpha(motionPaper) == restingAlpha, "The corner must return to its resting silhouette");
         Console.WriteLine("PASS animated corner visibly lifts and returns to its resting shape");
@@ -266,14 +290,14 @@ static class UiChecks
             ("down", new Vector(0,1), new[]{0,1}, new[]{2,3})
         })
         {
-            motionPaper.DragPull = pull;
+            motionPaper.Pose = PaperPose.Flat with { Flex = pull };
             Layout(motionPaper);
             var rendered = Render(motionPaper);
             Require(raised.All(i => PixelAlpha(rest, corners[i]) - PixelAlpha(rendered, corners[i]) > 100) &&
                 flat.All(i => PixelAlpha(rest, corners[i]) == PixelAlpha(rendered, corners[i])),
                 $"Dragging {name} must lift the trailing corners and keep the leading corners flat");
         }
-        motionPaper.DragPull = default;
+        motionPaper.Pose = PaperPose.Flat;
         motionPaper.Child = new TextBlock
         {
             Text = "Записка\n\nВстретимся в семь.", FontSize = 18,
@@ -281,6 +305,28 @@ static class UiChecks
         };
         Layout(motionPaper);
         Console.WriteLine("PASS paper curls behind motion in all four directions");
+
+        var outlined = new PaperSurface
+        {
+            Width = 210, Height = 175, Corners = "rounded", ClipContentToPaper = true,
+            Child = new Border { Background = Brushes.White },
+            Outline = new Pen(Brushes.DarkGreen, 3),
+            Pose = PaperPose.Flat with { Flex = new Vector(0, -1) }
+        };
+        Layout(outlined);
+        var outlinedPixels = Render(outlined);
+        Require(PixelAlpha(outlinedPixels, new Int32Rect(200, 165, 1, 1)) < 5 &&
+            PixelAlpha(outlinedPixels, new Int32Rect(100, 80, 1, 1)) > 250,
+            "The outlined paper must clip an opaque child to its moving silhouette");
+        outlined.Pose = PaperPose.Flat;
+        Layout(outlined);
+        Require(PixelAlpha(Render(outlined), new Int32Rect(200, 165, 1, 1)) > 250,
+            "The content clip must return with the paper after drag");
+        Console.WriteLine("PASS the moving outline and opaque content follow the paper silhouette");
+        motionPaper.Pose = lifted;
+        Layout(motionPaper);
+        SaveRender(motionPaper, Path.Combine(folder, "paper-peel.png"));
+        motionPaper.Pose = PaperPose.Flat;
 
         var crumple = new PaperCrumple { Width = motionPaper.Width, Height = motionPaper.Height };
         Require(crumple.TryPlay(motionPaper, () => {}), "Trash animation must be able to take a sheet snapshot");
@@ -393,9 +439,26 @@ static class UiChecks
             var work = System.Windows.Forms.Screen.PrimaryScreen!.WorkingArea;
             var pointer = new Point(work.Left + 50, work.Top + 60);
             var expected = fromDevice.Transform(pointer) + new Vector(10, 12);
+            var center = new Point(work.Left + work.Width / 2, work.Top + work.Height / 2);
+            var held = StickyLayout.DesktopDropBounds(center, fromDevice, new Size(300, 200), new Point(.4, .7));
+            Require((held.TopLeft + new Vector(120, 140) - fromDevice.Transform(center)).Length < .01,
+                "A manager card must retain the point where the user picked it up");
+            var initialPlacement = desk.Store.GetPlacement(active.Id);
+            var preview = DesktopCardDrag.CreatePreview(desk, active.Id);
+            preview.Left = expected.X; preview.Top = expected.Y;
+            preview.Show(); preview.UpdateLayout();
+            var previewFace = preview.PaperScreenBounds();
+            Require(((TextBox)preview.FindName("TitleBox")).Text == active.Title &&
+                ((NoteBodyEditor)preview.FindName("BodyBox")).Text == active.Body &&
+                ((Button)preview.FindName("HideButton")).IsVisible, "Manager preview must contain the actual note and its toolbar");
+            CheckStickyFace(preview, folder);
+            preview.Close();
+            Require(desk.Store.GetPlacement(active.Id) == initialPlacement, "Cancelling a preview must preserve the original placement");
             Require(desk.PlaceOnDesktop(active.Id, pointer, fromDevice), "An active note must be placeable from the manager");
             var placed = desk.Store.GetPlacement(active.Id);
             var window = Application.Current.Windows.OfType<StickyWindow>().Single(w => w.NoteId == active.Id);
+            window.UpdateLayout();
+            Require(previewFace == window.PaperScreenBounds(), "The manager preview and the landed paper must occupy the same pixels");
             Require(placed.Visible && placed.StackId == null && window.IsVisible && Math.Abs(placed.X - expected.X) < 1 &&
                 Math.Abs(placed.Y - expected.Y) < 1 && desk.Store.All().Count == 13 &&
                 desk.Store.Find(active.Id)!.Note.Body == active.Body, "Placement must use the drop point and preserve the original note");
@@ -421,6 +484,18 @@ static class UiChecks
                 "A note created in the manager must stay there");
 
             desk.CreateStack("Стопка 1");
+            window.RaiseForWork();
+            var overlay = DesktopCardDrag.CreatePreview(desk, created);
+            overlay.Left = window.Left; overlay.Top = window.Top;
+            overlay.Show(); overlay.UpdateLayout();
+            try
+            {
+                var point = window.PointToScreen(new Point(window.ActualWidth / 2, window.ActualHeight / 2));
+                var hit = new PaperDesk.Desktop.Win32Interop.Native.CursorPoint { X = (int)point.X, Y = (int)point.Y };
+                Require(desk.FindCardDropTarget(created, hit) == window,
+                    "A preview covering the cursor must pass the drop through to the underlying sticky");
+            }
+            finally { overlay.Close(); }
             Require(desk.StackCard(created, window), "A card dropped on a loose sheet must create a stack");
             var stack = desk.Store.GetPlacement(active.Id).StackId ?? throw new InvalidOperationException("Missing desktop stack");
             Require(desk.Store.GetPlacement(created) is { Visible: true } p && p.StackId == stack &&
@@ -702,6 +777,10 @@ static class UiChecks
                 Require(onCard.OnDesktop && onCard.StackName == "Дом" && !offCard.OnDesktop && !offCard.HasStack &&
                     Descendants(sections[0]).OfType<TextBlock>().Any(label => label.IsVisible && label.Text == "Дом"),
                     "The open stack must have a readable badge, and a minimized stack must be off desktop");
+                var container = gridCards.Single(item => ReferenceEquals(item.Content, onCard));
+                var badge = Descendants(container).OfType<TextBlock>().Single(label => label.Text == onCard.StackName);
+                Require(badge.TranslatePoint(new Point(0, badge.ActualHeight), container).Y <= container.ActualHeight - 2,
+                    "The full stack label must fit inside its selected card");
                 Click((Button)manager.FindName("ListViewButton"));
                 manager.UpdateLayout();
                 Require(Descendants(cards).OfType<GroupItem>().Count() == 2, "List view must keep both sections");
@@ -1001,8 +1080,10 @@ static class UiChecks
         Settle();
         var dropPoint = Center(source.PaperScreenBounds());
         second.DragMoved(dropPoint, default);
-        Require(((FrameworkElement)source.FindName("DropOutline")).IsVisible, "The destination sheet must highlight before drop");
+        Require(((PaperSurface)source.FindName("Paper")).Outline != null, "The destination sheet must highlight before drop");
         second.DragFinished(dropPoint, origin);
+        Require(!second.IsVisible && source.NoteId == second.NoteId, "The destination window must display the incoming top note");
+        second = source;
         Require(second.StackId is Guid group && group != Guid.Empty && desk.StackNotes(group).Count == 2 &&
             Bounds(second) == looseBounds && desk.StackNotes(Guid.Empty).Count == 1 &&
             desk.Store.GetStack(group)?.ActiveNoteId == second.NoteId && Sheets().Count == 2,
@@ -1045,11 +1126,11 @@ static class UiChecks
         Settle();
         second.DragMoved(Center(second.PaperScreenBounds()), default);
         var snappedGap = second.SheetFrameBounds().Left - secondary.SheetFrameBounds().Right;
-        Require(Math.Abs(snappedGap - 8 * dpi) < 2 && ((Border)second.FindName("DragOutline")).IsVisible &&
-            ((PaperSurface)second.FindName("Paper")).DragPull == default,
+        Require(Math.Abs(snappedGap - 8 * dpi) < 2 && ((PaperSurface)second.FindName("Paper")).Outline != null &&
+            ((PaperSurface)second.FindName("Paper")).Pose == PaperPose.Flat,
             "Nearby sheets must snap and show feedback with animations disabled");
         second.DragFinished(null, beforeSnap);
-        Require(Bounds(second) == beforeSnap && !((Border)second.FindName("DragOutline")).IsVisible,
+        Require(Bounds(second) == beforeSnap && ((PaperSurface)second.FindName("Paper")).Outline == null,
             "Cancelling the snapped move must restore its original bounds and clear feedback");
         Console.WriteLine("PASS editing-only format, separate move and peel grips, stacking and stack renaming");
 
@@ -1060,17 +1141,20 @@ static class UiChecks
         var targetPoint = Center(secondary.PaperScreenBounds());
         second.DragStarted(wholeStack: true);
         second.DragMoved(targetPoint, default);
-        Require(((FrameworkElement)secondary.FindName("DropOutline")).IsVisible,
+        Require(((PaperSurface)secondary.FindName("Paper")).Outline != null,
             "The top grip must highlight a drop target just like the lower grip");
         second.DragFinished(null, movedBounds);
         Require(Bounds(second) == movedBounds && desk.StackNotes(stackId).Count == 2 &&
-            !((FrameworkElement)secondary.FindName("DropOutline")).IsVisible,
+            ((PaperSurface)secondary.FindName("Paper")).Outline == null,
             "Cancelling a top-grip drop must preserve both stacks and clear the highlight");
 
         second.DragStarted(wholeStack: true);
         second.Left = secondary.Left;
         second.Top = secondary.Top;
         second.DragFinished(targetPoint, movedBounds);
+        Require(!second.IsVisible && Bounds(secondary) == primaryBounds && secondary.NoteId == second.NoteId,
+            "A whole-stack merge must keep the destination window and its bounds");
+        second = secondary;
         Require(Sheets().Single() == second && desk.StackNotes(Guid.Empty).Count == 3 &&
             desk.Store.GetStack(Guid.Empty)?.ActiveNoteId == second.NoteId &&
             desk.Store.GetPlacement(hidden.Id) is { Visible: false, StackId: Guid hiddenGroup } && hiddenGroup == Guid.Empty,
@@ -1088,6 +1172,9 @@ static class UiChecks
             var other = Sheets().Single(w => w != second);
             second.DragStarted(wholeStack: true);
             second.DragFinished(Center(other.PaperScreenBounds()), looseBounds);
+            Require(other.NoteId == second.NoteId && Bounds(other) == primaryBounds && !second.IsVisible,
+                "Every rejoin must keep the destination still");
+            second = other;
             Require(second.StackId == Guid.Empty && desk.StackNotes(Guid.Empty).Count == 3,
                 "A loose sheet must also join a stack when dragged by its top grip");
         }
@@ -1102,32 +1189,40 @@ static class UiChecks
     private static void CheckDragRendering()
     {
         var frames = 0;
-        var lastPull = new Vector();
-        var lastGrip = 0d;
-        var response = new PaperDragResponse((pull, grip) => { frames++; lastPull = pull; lastGrip = grip; });
+        var last = PaperPose.Flat;
+        var grip = new Point(.23, .08);
+        var response = new PaperDragResponse(pose => { frames++; last = pose; });
         try
         {
-            response.Grab();
-            response.Follow(new Vector(450, -350));
+            response.Grab(grip, peel: false);
+            response.Follow(new Vector(450, -350), .3);
             Pump(800);
             var paused = frames;
-            Require(paused > 2 && lastPull == default && lastGrip == 1, "A held sheet must settle when the pointer stops");
+            Require(paused > 2 && last.Flex == default && last.Grip == grip, "A held sheet must settle around its grip when the pointer stops");
             Pump(180);
             Require(frames == paused, "Settled motion must unsubscribe from the rendering loop");
-            response.Follow(new Vector(-550, 100));
-            Pump(100);
-            Require(frames > paused && lastPull.X < 0, "Moving again must resume the rendering loop");
+            response.Follow(new Vector(-550, 100), .3);
+            var resumed = false;
+            Pump(500, () => resumed = frames > paused && last.Flex.X < 0);
+            Require(resumed, "Moving again must resume the rendering loop");
             response.Release();
             Pump(650);
-            Require(lastPull == default && lastGrip == 0, "Releasing a sheet must restore its resting pose");
+            Require(last.Flex == default && last.Peel == 0 && last.Back == default && last.Rear == default,
+                "Releasing a sheet must restore its resting pose");
         }
         finally { response.Stop(); }
 
-        static void Pump(int milliseconds)
+        static void Pump(int milliseconds, Func<bool>? until = null)
         {
             var frame = new DispatcherFrame();
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds) };
-            timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(until == null ? milliseconds : 10) };
+            timer.Tick += (_, _) =>
+            {
+                if (until?.Invoke() != true && watch.ElapsedMilliseconds < milliseconds) return;
+                timer.Stop();
+                frame.Continue = false;
+            };
             timer.Start();
             Dispatcher.PushFrame(frame);
         }

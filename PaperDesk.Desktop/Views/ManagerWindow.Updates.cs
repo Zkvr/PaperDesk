@@ -70,20 +70,22 @@ public partial class ManagerWindow
             });
             var package = await ReleaseUpdates.Shared.DownloadAsync(release, workspace, progress, timeout.Token);
             timeout.Token.ThrowIfCancellationRequested();
+            if (!release.Installed)
+            {
+                await PortableUpdate.OfferZip(package, desk.DataRoot, this, timeout.Token);
+                return;
+            }
             EditBody.EndEdit();
             desk.FlushWindows();
-            if (release.Installed)
+            if (desk.HasUnsavedEdits)
             {
-                var start = new ProcessStartInfo(package) { UseShellExecute = true };
-                start.ArgumentList.Add("/PaperDeskData=" + desk.DataRoot);
-                using var setup = Process.Start(start) ?? throw new IOException("Unable to start PaperDesk Setup.");
-                PortableUpdate.MarkFinished(workspace, setup);
+                MessageBox.Show(this, L.T("Сохраните или скопируйте черновики перед обновлением."), "PaperDesk");
+                return;
             }
-            else
-            {
-                await Task.Run(() => PortableUpdate.StageAndStart(workspace, package, AppContext.BaseDirectory,
-                    desk.DataRoot, release.Version, timeout.Token), timeout.Token);
-            }
+            var start = new ProcessStartInfo(package) { UseShellExecute = true };
+            start.ArgumentList.Add("/PaperDeskData=" + desk.DataRoot);
+            using var setup = Process.Start(start) ?? throw new IOException("Unable to start PaperDesk Setup.");
+            PortableUpdate.MarkFinished(workspace, setup);
             handedOff = true;
             desk.Exit();
         }
