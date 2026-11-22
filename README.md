@@ -14,7 +14,7 @@ PaperDesk puts checklists, notes, and project stacks on your Windows desktop. It
 
 Pick up a note card in the manager, drag it onto an open spot on the Windows desktop, and let go.
 
-<img src="media/move-to-desktop.gif" width="360" alt="The cursor drags a checklist from the manager onto the desktop.">
+<img src="media/move-to-desktop.gif" width="544" alt="The cursor drags a checklist from the manager onto the desktop.">
 
 ## Desktop notes and stacks
 
@@ -22,25 +22,19 @@ Pick up a note card in the manager, drag it onto an open spot on the Windows des
 
 Use the upper grip to move a note. Drop it over another note or stack. The incoming sheet becomes **1 of 3** here, with the previous top sheet directly below.
 
-<img src="media/place-on-stack.gif" width="360" alt="The yellow checklist lands above two sheets in Fieldwork.">
+<img src="media/place-on-stack.gif" width="544" alt="The yellow checklist lands above two sheets in Fieldwork.">
 
-### Peel one sheet free
+### Peel and move a sheet
 
-Grab the lower edge. A short sideways pull bends the corner while the top holds. Pull back toward the top edge to free the sheet sooner.
+A short sideways tug bends the corner while the top holds. Pull back toward the top edge to free the sheet, then carry it straight to the other stack.
 
-<img src="media/peel-two-directions.gif" width="360" alt="A sideways tug lifts the corner; pulling upward peels the note free.">
-
-### Move it to another stack
-
-Carry the peeled sheet to a second stack. It becomes the first sheet there too.
-
-<img src="media/move-between-stacks.gif" width="360" alt="The cursor carries the checklist from Fieldwork to the top of Weekend.">
+<img src="media/peel-and-transfer.gif" width="544" alt="The cursor tries a sideways tug, peels the yellow note free, and lays it on top of the Weekend stack.">
 
 ### Discard the top sheet
 
 Click the trash icon. The upper note crumples, revealing the note just beneath it.
 
-<img src="media/discard-top-sheet.gif" width="360" alt="The yellow checklist crumples, revealing Weekend ideas.">
+<img src="media/discard-top-sheet.gif" width="544" alt="The yellow checklist crumples, revealing Weekend ideas.">
 
 ## Themes and paper
 
