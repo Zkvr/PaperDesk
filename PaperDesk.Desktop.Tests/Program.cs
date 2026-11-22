@@ -494,9 +494,9 @@ static partial class UiChecks
                 var hit = new PaperDesk.Desktop.Win32Interop.Native.CursorPoint { X = (int)point.X, Y = (int)point.Y };
                 Require(desk.FindCardDropTarget(created, hit) == window,
                     "A preview covering the cursor must pass the drop through to the underlying sticky");
+                Require(desk.StackCard(created, window, overlay), "A card dropped on a loose sheet must create a stack");
             }
             finally { overlay.Close(); }
-            Require(desk.StackCard(created, window), "A card dropped on a loose sheet must create a stack");
             var stack = desk.Store.GetPlacement(active.Id).StackId ?? throw new InvalidOperationException("Missing desktop stack");
             Require(desk.Store.GetPlacement(created) is { Visible: true } p && p.StackId == stack &&
                 desk.Stack(stack).ActiveNoteId == created && desk.StackNotes(stack).Count == 2 && window.NoteId == created &&

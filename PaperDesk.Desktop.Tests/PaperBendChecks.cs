@@ -35,6 +35,7 @@ static partial class UiChecks
                 "The close icon must remain visible at the same pixels on the lifted sheet");
         }
         finally { bent.Clear(); sheet.Effect = shadow; }
+        CheckLandingWindow(sticky, folder);
         Console.WriteLine("PASS the lifted sticky retains its rounded corner and toolbar position");
 
         RenderTargetBitmap Capture(string name)
@@ -57,12 +58,62 @@ static partial class UiChecks
         }
     }
 
+    private static void CheckLandingWindow(StickyWindow owner, string folder)
+    {
+        var to = owner.PaperScreenBounds();
+        var from = to;
+        from.Offset(-68, 42);
+        PaperSurface Face(string text, Brush color) => new() { Fill = color, Child = new TextBlock
+            { Margin = new Thickness(20), Text = text, FontSize = 22, Foreground = Brushes.Black } };
+        var overlay = StackLanding.Create(owner, from, to, PaperPose.Flat with { Grip = new Point(.8, .9), Peel = .8 },
+            Face("Стопка", Brushes.LightBlue), Face("Список дел", Brushes.LemonChiffon));
+        var stage = (Canvas)overlay.Content;
+        var bent = (BentPaperView)stage.Children[1];
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        var limit = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        limit.Tick += (_, _) => frame.Continue = false;
+        overlay.Closed += (_, _) => frame.Continue = false;
+        var startY = bent.RenderTransform.Value.OffsetY;
+        var endY = Canvas.GetTop(stage.Children[0]);
+        var captures = 0;
+        void Observe(object? sender, EventArgs args)
+        {
+            var y = bent.RenderTransform.Value.OffsetY;
+            if (!overlay.IsVisible || captures >= 3 || y > startY + (endY - startY) * captures * .45) return;
+            stage.UpdateLayout();
+            SaveSized(stage, Path.Combine(folder, $"stack-landing-{++captures}.png"));
+        }
+        try
+        {
+            overlay.Show();
+            CompositionTarget.Rendering += Observe;
+            limit.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+            Require(!overlay.IsVisible && captures == 3, "Stack landing must cross the release and contact positions, then remove its overlay");
+        }
+        finally
+        {
+            limit.Stop();
+            CompositionTarget.Rendering -= Observe;
+            if (overlay.IsVisible) overlay.Close();
+        }
+    }
+
     private static void CheckPaperBend(string folder, bool captureMotion = false)
     {
         Directory.CreateDirectory(folder);
         var size = new Size(320, 290);
         var grip = new Point(.82, .96);
         var pose = PaperPose.Flat with { Peel = .95, Grip = grip };
+        var priorHeight = double.PositiveInfinity;
+        foreach (var t in new[] { 0d, .2, .4, .6, .8, 1 })
+        {
+            var projected = new PaperBend(size, StackLanding.PoseAt(pose, t));
+            var corner = projected.At(size.Width, size.Height);
+            Require(projected.At(0, 0).Z == 0 && corner.Z <= priorHeight, "Landing must unroll towards contact without bouncing");
+            priorHeight = corner.Z;
+        }
+        Require(priorHeight < .001, "The last landing frame must be flat");
         var shape = new PaperBend(size, pose);
         var left = shape.At(0, size.Height);
         var right = shape.At(size.Width, size.Height);

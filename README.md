@@ -1,14 +1,29 @@
 <p align="center">
-  <img src="media/paperdesk-hero.png" alt="PaperDesk. Sticky notes that feel like paper. Three pastel sheets on a graphite desk, with a handwritten checklist on top." width="100%">
+  <img src="media/paperdesk-hero.png" alt="PaperDesk for Windows. A yellow weekend checklist settles over a pink studio note." width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.8.0-beta"><strong>Download v0.8.0-beta</strong></a>
-  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.8.0-beta#whats-new">What's new</a>
+  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.0-beta"><strong>Download v0.9.0-beta</strong></a>
+  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.0-beta#whats-new">What's new</a>
   &nbsp;·&nbsp; <a href="#start-writing">Quick start</a>
 </p>
 
 PaperDesk puts checklists, notes, and project stacks on your Windows desktop. It works offline without an account.
+
+## Desktop notes and stacks
+
+Drag a card from the manager by any point on the paper and release it over a desktop note. The lower note stays in place as the incoming sheet settles onto it. Use the upper grip to move a whole stack. Pull the lower edge to peel off one sheet. Turn on **Snap sheets to nearby edges** in **Settings → Gestures and animation** to line up adjacent notes.
+
+![A lifted checklist travels to the stack. Its free edge unrolls over the note beneath it.](media/stack-and-peel.gif)
+
+<details>
+  <summary>See a finished sheet crumple</summary>
+
+  <p align="center">
+    <img src="media/paper-motion.gif" width="360" alt="A yellow sheet crumples and reveals the next note in its stack.">
+  </p>
+
+</details>
 
 ## Themes and paper
 
@@ -22,21 +37,6 @@ Click the color dot on a sheet to choose its color, texture, corners, shadow, tr
   <img src="media/paper-appearance.png" width="520" alt="A compact desktop note with the paper appearance panel open.">
 </p>
 
-## Desktop notes and stacks
-
-Drag a sheet or stack by its upper grip to combine it with another. Pull the lower edge to peel off one sheet. Turn on **Snap sheets to nearby edges** in **Settings → Gestures and animation** to line up adjacent notes.
-
-![Two named stacks merge, then the top note is peeled off as a separate sheet.](media/stack-and-peel.gif)
-
-<details>
-  <summary>See a finished sheet crumple</summary>
-
-  <p align="center">
-    <img src="media/paper-motion.gif" width="360" alt="A yellow sheet crumples and reveals the next note in its stack.">
-  </p>
-
-</details>
-
 ## Write and organize
 
 - Edit checklists, tables, and spoilers on the paper. Paste or drag in an image and choose inline, wrap, or overlay placement.
@@ -49,12 +49,12 @@ PaperDesk runs on Windows 10 build 19041 or newer and Windows 11 (x64). Both pac
 
 | Download | Open |
 | --- | --- |
-| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.8.0-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
-| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.8.0-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
+| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
+| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
 
 Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. Press **F1** in the manager for shortcuts and stack gestures.
 
-[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.8.0-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
+[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
 
 ## Build from source
 

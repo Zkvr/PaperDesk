@@ -16,7 +16,7 @@ internal sealed class DesktopCardDrag
     private NoteCard? card;
     private NoteStore? sourceStore;
     private Point press, grip;
-    private Window? preview;
+    private StickyWindow? preview;
     private StickyWindow? dropTarget;
     private bool canDrop;
 
@@ -110,7 +110,7 @@ internal sealed class DesktopCardDrag
         try
         {
             if (note == null || selecting() || !ReferenceEquals(store, desk.Store) || !Native.GetCursorPos(out var point)) return;
-            if (desk.FindCardDropTarget(note.Id, point) is { } target) desk.StackCard(note.Id, target);
+            if (desk.FindCardDropTarget(note.Id, point) is { } target) desk.StackCard(note.Id, target, preview);
             else if (DesktopLayer.IsDesktopAt(point))
                 desk.PlaceOnDesktop(note.Id, new Point(point.X, point.Y), transform, grip);
         }
@@ -146,6 +146,12 @@ internal sealed class DesktopCardDrag
             ShowActivated = false, Focusable = false, IsHitTestVisible = false,
             WindowStartupLocation = WindowStartupLocation.Manual, Topmost = true
         };
+        MakePassThrough(window);
+        return window;
+    }
+
+    internal static void MakePassThrough(Window window)
+    {
         window.SourceInitialized += (_, _) =>
         {
             const int style = -16, disabled = 0x08000000;
@@ -154,6 +160,5 @@ internal sealed class DesktopCardDrag
             Native.SetWindowLong(handle, style, Native.GetWindowLong(handle, style) | disabled);
             Native.SetWindowLong(handle, extendedStyle, Native.GetWindowLong(handle, extendedStyle) | passThrough | toolWindow | noActivate);
         };
-        return window;
     }
 }

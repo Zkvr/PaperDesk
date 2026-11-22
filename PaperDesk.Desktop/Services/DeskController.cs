@@ -292,7 +292,7 @@ public sealed class DeskController : IDisposable
         return null;
     }
 
-    internal bool StackCard(Guid id, StickyWindow target)
+    internal bool StackCard(Guid id, StickyWindow target, StickyWindow? preview = null)
     {
         if (!Settings.StackedNotes || draggedSheet != null || id == target.NoteId ||
             !target.IsVisible || target.IsCrumpling || !ReferenceEquals(stickies.GetValueOrDefault(target.NoteId), target) ||
@@ -307,9 +307,10 @@ public sealed class DeskController : IDisposable
         var stack = StackForDrop(target, id, placements);
         placements.Add(Store.GetPlacement(id) with { Visible = true, StackId = stack.Id });
         Store.SavePlacements(placements, stack);
+        var previousTop = target.NoteId;
         target.StackId = stack.Id;
         ReconcileWindows(animateOpening: false);
-        target.SettleOnStack();
+        if (preview != null) target.SettleOnStack(previousTop, preview.PaperScreenBounds(), PaperPose.Flat);
         Changed?.Invoke();
         return true;
     }
@@ -460,6 +461,9 @@ public sealed class DeskController : IDisposable
             throw;
         }
 
+        var incomingBounds = source.PaperScreenBounds();
+        var incomingPose = source.CurrentPaperPose;
+        var previousTop = target?.NoteId;
         if (target != null)
         {
             // Keep the destination HWND and its editor in place as the top note changes.
@@ -473,7 +477,7 @@ public sealed class DeskController : IDisposable
             RegisterSticky(revealed);
         }
         ReconcileWindows(animateOpening: false);
-        target?.SettleOnStack();
+        if (target != null && previousTop is Guid oldTop) target.SettleOnStack(oldTop, incomingBounds, incomingPose);
     }
 
     private bool IsLiveSheet(StickyWindow window) => Store.GetPlacement(window.NoteId).Visible &&

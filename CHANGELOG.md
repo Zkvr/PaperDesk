@@ -4,7 +4,7 @@
 
 - Keep the grabbed point under the pointer when dragging a manager card to the desktop.
 - Show the full stack badge in the manager grid.
-- Settle the top sheet onto the stack with a short paper landing animation.
+- Carry the incoming sheet from the release point onto the stack and unroll its free edge over the sheet beneath it.
 
 ## 0.8.0-beta
 

@@ -260,19 +260,39 @@ public partial class StickyWindow : Window
     }
     private bool MotionEnabled => desk.Settings.Animations && SystemParameters.ClientAreaAnimation;
 
-    internal void SettleOnStack()
+    private Window? landing;
+    internal PaperPose CurrentPaperPose { get; private set; }
+
+    internal void SettleOnStack(Guid previous, Rect from, PaperPose pose)
     {
-        if (!MotionEnabled || !IsVisible) return;
+        if (!MotionEnabled || !IsVisible || from.IsEmpty) return;
         ResetPaperMotion();
-        // The glued edge touches first. The free corner relaxes onto the stationary backing.
-        dragResponse.Land(new PaperPose(new Point(.78, .14), new Vector(.32, -.24), .76, default, default));
-        var slide = new TranslateTransform();
-        SheetFrame.RenderTransform = slide;
-        var landing = new System.Windows.Media.Animation.DoubleAnimation(-6, 0, TimeSpan.FromMilliseconds(230))
+        var to = PaperScreenBounds();
+        if (to.IsEmpty) return;
+        landing = StackLanding.Create(this, from, to, pose, PreviewPaper(previous), PreviewPaper(NoteId));
+        var overlay = landing;
+        overlay.Closed += (_, _) =>
         {
-            DecelerationRatio = .85, FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+            if (landing != overlay) return;
+            SheetFrame.Opacity = 1;
+            landing = null;
         };
-        slide.BeginAnimation(TranslateTransform.YProperty, landing);
+        overlay.Show();
+        if (landing == overlay) SheetFrame.Opacity = 0;
+
+        PaperSurface PreviewPaper(Guid id)
+        {
+            var preview = new StickyWindow(desk, id, animateOpening: false, cardPreview: true);
+            preview.Width = Width;
+            preview.Height = Height;
+            if (id == NoteId) preview.StackId = StackId;
+            preview.RefreshContent();
+            var paper = preview.Paper;
+            preview.FlatFace.Children.Remove(paper);
+            preview.Close();
+            paper.Effect = null;
+            return paper;
+        }
     }
 
     private void RevealPaper()
@@ -391,6 +411,7 @@ public partial class StickyWindow : Window
 
     private void PaintFlex(PaperPose pose)
     {
+        CurrentPaperPose = pose;
         var flex = pose.Flex;
         var strength = Math.Clamp(flex.Length, 0, 1);
         var peel = Math.Clamp(pose.Peel, 0, 1);
@@ -414,7 +435,8 @@ public partial class StickyWindow : Window
 
     private void ResetPaperMotion()
     {
-        SheetFrame.RenderTransform = Transform.Identity;
+        landing?.Close();
+        landing = null;
         projectingPeel = false;
         dragResponse.Stop();
         PaintFlex(PaperPose.Flat);
