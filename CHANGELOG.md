@@ -1,5 +1,12 @@
 # PaperDesk changelog
 
+## Unreleased
+
+- Attach a file or link to a named stack and reopen it from Projects.
+- Learn project shortcuts and paper gestures from the themed Help panel.
+- Hide desktop notes from the compact tray menu and restore their previous layout.
+- Find appearance, behavior, and shortcuts in separate Settings sections.
+
 ## 0.9.2-beta
 
 - Keep the incoming sheet visible from release to contact while stacking.

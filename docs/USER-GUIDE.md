@@ -18,7 +18,9 @@ Remove the installed app through **Settings → Apps → Installed apps**. After
 
 - **Ctrl+Alt+N** creates a desktop note. **Ctrl+Alt+Space** brings notes forward. In the manager, **Ctrl+F** searches notes and **F1** shows shortcuts and stack gestures.
 - Click the paper-colored dot on a note to change its look. Open **Settings → Appearance** to switch the app theme.
-- For the built-in editor, enable **Lightweight editor (after restart)** in **Settings**, save, then exit from the tray and reopen PaperDesk.
+- For the built-in editor, enable **Lightweight editor (after restart)** in **Settings → Behavior**, save, then exit from the tray and reopen PaperDesk.
+- Choose **Hide notes** in the tray to clear the desktop temporarily. **Restore desktop notes** returns the open sheets to their saved positions.
+- Select a note from a named stack and choose **Attach file or link…** below the editor. **Projects → Resume** opens the source and its stack. Open **Help → Projects** to try the examples.
 - In the manager, choose **File → Export a backup…** and save a **JSON backup**. It includes notes, attachments, archive and trash, stacks, and per-note appearance. Markdown is available as a reading copy of the text.
 - PaperDesk keeps up to seven automatic snapshots of each changed profile, at most one per hour. Choose **File → Restore backup…** to open a JSON snapshot in a separate local profile. Earlier snapshots may still include notes you permanently deleted.
 - To add notes from a backup to your current profile, choose **File → Import notes…**. A note with a matching ID is imported as a separate copy.

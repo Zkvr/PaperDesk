@@ -1,11 +1,9 @@
-
 namespace PaperDesk.Desktop.Services;
 
 public record Settings
 {
-    public string SupabaseUrl { get; init; } = "";
-    public string PublishableKey { get; init; } = "";
-    public Guid LastUserId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? LocalProfile { get; init; }
     public bool DesktopLayer { get; init; }
     public bool Animations { get; init; } = true;
     public bool NativeEditor { get; init; }

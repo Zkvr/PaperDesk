@@ -27,12 +27,16 @@ internal sealed class DesktopCardDrag
         this.desk = desk;
         this.selecting = selecting;
         cards.PreviewMouseLeftButtonDown += Begin;
+        cards.AddHandler(UIElement.MouseLeftButtonDownEvent, new MouseButtonEventHandler(Capture), handledEventsToo: true);
         owner.PreviewMouseMove += Move;
         owner.PreviewMouseLeftButtonUp += Finish;
         owner.Deactivated += (_, _) => Cancel();
         owner.Closed += (_, _) => Cancel();
-        cards.LostMouseCapture += (_, _) => { if (preview != null && Mouse.Captured != cards) Cancel(); };
-        cards.QueryCursor += (_, e) =>
+        owner.LostMouseCapture += (_, e) =>
+        {
+            if (card != null && e.OriginalSource == owner && Mouse.Captured != owner) Cancel();
+        };
+        owner.QueryCursor += (_, e) =>
         {
             if (preview == null) return;
             e.Cursor = canDrop ? Cursors.SizeAll : Cursors.No;
@@ -59,10 +63,27 @@ internal sealed class DesktopCardDrag
             Math.Clamp(local.Y / Math.Max(1, item.ActualHeight), 0, 1));
     }
 
+    private void Capture(object sender, MouseButtonEventArgs e)
+    {
+        // ListBox already selected the pressed card. Its capture would enable drag selection and autoscroll.
+        if (card != null && !owner.CaptureMouse()) Cancel();
+    }
+
     private void Move(object sender, MouseEventArgs e)
     {
         if (card == null) return;
-        if (e.LeftButton != MouseButtonState.Pressed || selecting() || !ReferenceEquals(sourceStore, desk.Store))
+        if (selecting() || !ReferenceEquals(sourceStore, desk.Store))
+        {
+            Cancel();
+            return;
+        }
+        if (preview == null)
+        {
+            var delta = e.GetPosition(owner) - press;
+            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        }
+        if (e.LeftButton != MouseButtonState.Pressed)
         {
             Cancel();
             return;
@@ -70,10 +91,6 @@ internal sealed class DesktopCardDrag
         if (!Native.GetCursorPos(out var point)) return;
         if (preview == null)
         {
-            var delta = e.GetPosition(owner) - press;
-            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
-                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-            if (!cards.CaptureMouse()) { Cancel(); return; }
             preview = CreatePreview(desk, card.Id);
             var startTransform = PresentationSource.FromVisual(owner)?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
             var start = StickyLayout.DesktopDropBounds(new Point(point.X, point.Y), startTransform, new Size(preview.Width, preview.Height), grip);
@@ -133,8 +150,8 @@ internal sealed class DesktopCardDrag
         canDrop = false;
         card = null;
         sourceStore = null;
+        if (Mouse.Captured == owner) owner.ReleaseMouseCapture();
         if (ghost == null) return;
-        if (Mouse.Captured == cards) cards.ReleaseMouseCapture();
         ghost.Close();
         Mouse.UpdateCursor();
     }

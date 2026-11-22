@@ -8,14 +8,14 @@ using PaperDesk.Desktop.Win32Interop;
 
 namespace PaperDesk.Desktop.Services;
 
-public sealed class DeskController : IDisposable
+public sealed partial class DeskController : IDisposable
 {
     public string DataRoot { get; }
     public Settings Settings { get; private set; }
     internal bool UseNativeEditor { get; }
     public NoteStore Store { get; private set; } = null!;
     public string Status { get; private set; } = L.T("Локальный режим");
-    public string Account => L.T("На этом компьютере");
+    public string StorageLocation => L.T("На этом компьютере");
     public event Action? Changed;
     private readonly Dictionary<Guid, StickyWindow> stickies = new();
     private readonly HashSet<Guid> minimizedStacks = [];
@@ -24,7 +24,6 @@ public sealed class DeskController : IDisposable
     private readonly Forms.NotifyIcon tray;
     private readonly HotkeyHost hotkey;
     private readonly HotkeyHost summonHotkey;
-    private readonly Forms.ToolStripMenuItem summonItem;
     private ManagerWindow? manager;
     private SettingsWindow? settingsWindow;
     private readonly Dictionary<(NoteStore, Guid), UnsavedNoteWindow> unsavedEdits = [];
@@ -69,31 +68,40 @@ public sealed class DeskController : IDisposable
         };
         var settingsPath = Path.Combine(root, "settings.json");
         var newProfile = !File.Exists(settingsPath) && !Directory.Exists(Path.Combine(root, "profiles"));
-        Settings = File.Exists(settingsPath) ? Json.Read<Settings>(File.ReadAllText(settingsPath)) : new Settings();
+        var saved = File.Exists(settingsPath) ? File.ReadAllText(settingsPath) : null;
+        Settings = saved is null ? new Settings() : Json.Read<Settings>(saved);
+        var (profile, owner) = OfflineProfile.Resolve(root, saved, Settings.LocalProfile);
+        Settings = Settings with { LocalProfile = owner == Guid.Empty ? null : profile };
         UseNativeEditor = Settings.NativeEditor;
         ThemePalette.Apply(Settings.Theme);
-        OpenStore(Guid.Empty);
+        OpenStore(profile, owner);
         if (newProfile)
         {
             Settings = Settings with { WelcomePending = true };
             SaveSettings();
         }
-        tray = new Forms.NotifyIcon { Text = "PaperDesk", Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application, Visible = true, ContextMenuStrip = new Forms.ContextMenuStrip() };
-        summonItem = new Forms.ToolStripMenuItem(L.T("Вызвать заметки поверх окон"), null, (_, _) => SummonNotes());
-        tray.ContextMenuStrip.Items.Add(summonItem);
-        tray.ContextMenuStrip.Items.Add(L.T("＋ Новый листик"), null, (_, _) => NewNote());
-        tray.ContextMenuStrip.Items.Add(L.T("Все заметки"), null, (_, _) => ShowManager());
-        tray.ContextMenuStrip.Items.Add(L.T("Скрыть листики"), null, (_, _) => SetAllVisible(false));
-        tray.ContextMenuStrip.Items.Add(L.T("Показать все листики"), null, (_, _) => SetAllVisible(true));
-        tray.ContextMenuStrip.Items.Add(L.T("Параметры"), null, (_, _) => ShowSettings());
-        tray.ContextMenuStrip.Items.Add(new Forms.ToolStripSeparator());
-        tray.ContextMenuStrip.Items.Add(L.T("Выход"), null, (_, _) => Exit());
+        var menu = new TrayMenu();
+        tray = new Forms.NotifyIcon { Text = "PaperDesk", Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application, Visible = true, ContextMenuStrip = menu };
+        menu.Items.Add(L.T("Новый листик"), null, (_, _) => NewNote());
+        menu.Items.Add(L.T("Все заметки"), null, (_, _) => ShowManager());
+        var visibility = menu.Items.Add(L.T("Скрыть листики"), null, (_, _) => ToggleDesktopNotes());
+        menu.Items.Add(L.T("Параметры"), null, (_, _) => ShowSettings());
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(L.T("Выход"), null, (_, _) => Exit());
+        foreach (var item in menu.Items.OfType<Forms.ToolStripMenuItem>())
+            item.Padding = new Forms.Padding(8, 3, 14, 3);
+        menu.Opening += (_, _) =>
+        {
+            menu.ApplyTheme(ThemePalette.Find(Settings.Theme));
+            visibility.Text = L.T(notesSuppressed || (minimizedStacks.Count > 0 && !stickies.Values.Any(w => w.IsVisible))
+                ? "Вернуть листики" : "Скрыть листики");
+            visibility.Enabled = notesSuppressed || stickies.Count > 0;
+        };
         tray.DoubleClick += (_, _) => ShowManager();
         hotkey = new HotkeyHost(NewNote);
         summonHotkey = new HotkeyHost(SummonNotes);
         RegisterAtStartup(hotkey, Settings.Hotkey, L.T("Новый листик"));
         RegisterAtStartup(summonHotkey, Settings.SummonHotkey, L.T("Вызвать заметки"));
-        UpdateSummonLabel();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
         Microsoft.Win32.SystemEvents.PowerModeChanged += PowerModeChanged;
         SystemParameters.StaticPropertyChanged += SystemParametersChanged;
@@ -110,10 +118,9 @@ public sealed class DeskController : IDisposable
         ReconcileWindows();
         Status = L.T("Локальный режим • сохранено на диске");
     }
-    private void OpenStore(Guid user)
+    private void OpenStore(string profile, Guid user)
     {
         undo = null;
-        const string profile = "local";
         var folder = Path.Combine(DataRoot, "profiles", profile);
         Store = new NoteStore(Path.Combine(folder, "notes.db"), user);
         BackupFolder = Path.Combine(folder, "backups");
@@ -139,7 +146,7 @@ public sealed class DeskController : IDisposable
                 if (ProfileBackups.Capture(store, folder, DateTimeOffset.UtcNow))
                     Interlocked.Exchange(ref backupRevision, revision);
             }
-            catch (ObjectDisposedException) { } // The account changed before the backup began.
+            catch (ObjectDisposedException) { } // The application closed before the backup began.
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
             {
                 ErrorLog.Write(DataRoot, ErrorLog.Area.Backup, error);
@@ -177,7 +184,6 @@ public sealed class DeskController : IDisposable
         }
         HotkeyWarning = "";
         if (Settings.StackedNotes != value.StackedNotes) { FlushWindows(); CloseStickies(); minimizedStacks.Clear(); }
-        UpdateSummonLabel();
         Settings = value; SaveSettings();
         ApplyMotionPreference();
         using var run = Microsoft.Win32.Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
@@ -243,7 +249,6 @@ public sealed class DeskController : IDisposable
         if (group is Guid stackId)
         {
             minimizedStacks.Remove(stackId);
-            UpdateSummonLabel();
             SelectTop(stackId, id);
         }
         ReconcileWindows();
@@ -569,7 +574,6 @@ public sealed class DeskController : IDisposable
             var order = notes.Concat(FromFace(group, destination.ActiveNoteId)).Where(id => id != Guid.Empty).Distinct().ToArray();
             Store.SavePlacements(placements, destination with { ActiveNoteId = notes[0], SheetOrder = order });
             minimizedStacks.Remove(group);
-            UpdateSummonLabel();
         }
         else Store.SavePlacements(placements);
         ReconcileWindows();
@@ -602,23 +606,33 @@ public sealed class DeskController : IDisposable
         return best ?? new Rect(area.Left + 32, area.Top + 32, width, height);
     }
 
-    public void ShowStack(Guid group)
+    public void ShowStack(Guid group) => RevealStack(group);
+
+    private bool RevealStack(Guid group, IReadOnlySet<Guid>? hideGroups = null)
     {
-        if (!Settings.StackedNotes) return;
+        if (!Settings.StackedNotes) return false;
         var placements = Store.AllPlacements();
         var members = Store.All().Where(row => row.Note is { ArchivedAt: null, DeletedAt: null })
             .Select(row => placements.GetValueOrDefault(row.Note.Id) ?? new Placement { NoteId = row.Note.Id, StackId = null })
             .Where(p => p.StackId == group).ToList();
-        if (members.Count == 0) return;
+        if (members.Count == 0) return false;
+        var changes = members.Where(p => !p.Visible).Select(p => p with { Visible = true });
+        if (hideGroups is { Count: > 0 })
+        {
+            foreach (var window in stickies.Values.Where(window => window.StackId is Guid id && hideGroups.Contains(id)).ToArray())
+                window.Flush();
+            changes = changes.Concat(placements.Values.Where(p => p.Visible && p.StackId is Guid id && hideGroups.Contains(id))
+                .Select(p => p with { Visible = false }));
+        }
+        Store.SavePlacements(changes);
         notesSuppressed = false;
         minimizedStacks.Remove(group);
-        UpdateSummonLabel();
-        Store.SavePlacements(members.Where(p => !p.Visible).Select(p => p with { Visible = true }));
         ReconcileWindows();
         var top = stickies.Values.FirstOrDefault(w => w.StackId == group && w.IsVisible);
-        if (top == null) return;
+        if (top == null) return false;
         top.RaiseForWork();
         top.Activate();
+        return true;
     }
     public void MoveStack(Guid active, int direction)
     {
@@ -650,14 +664,12 @@ public sealed class DeskController : IDisposable
         var placements = StackNotes(group).Select(note => Store.GetPlacement(note.Id) with { Visible = false }).ToList();
         Store.SavePlacements(placements);
         minimizedStacks.Remove(group);
-        UpdateSummonLabel();
         ReconcileWindows();
     }
     public void MinimizeStack(Guid group)
     {
         if (!Settings.StackedNotes || !stickies.Values.Any(w => w.StackId == group)) return;
         minimizedStacks.Add(group);
-        UpdateSummonLabel();
         foreach (var window in stickies.Values.Where(w => w.StackId == group)) { window.Flush(); window.Hide(); }
         Changed?.Invoke();
     }
@@ -665,7 +677,7 @@ public sealed class DeskController : IDisposable
     public void SummonNotes()
     {
         notesSuppressed = false;
-        minimizedStacks.Clear(); UpdateSummonLabel();
+        minimizedStacks.Clear();
         ReconcileWindows();
         Changed?.Invoke();
         if (stickies.Count == 0) { ShowManager(); return; }
@@ -676,11 +688,6 @@ public sealed class DeskController : IDisposable
         active.FocusEditor();
     }
 
-    private void UpdateSummonLabel()
-    {
-        var label = minimizedStacks.Count > 0 ? L.T("Восстановить стопки") : L.T("Вызвать заметки поверх окон");
-        summonItem.Text = summonHotkey.Shortcut is string shortcut ? $"{label} ({shortcut})" : label;
-    }
     public void ChangeState(Guid id, string action, bool animateSticky = true)
     {
         stickies.TryGetValue(id, out var window);
@@ -737,14 +744,21 @@ public sealed class DeskController : IDisposable
         undo = null;
         ReconcileWindows();
     }
-    public void SetAllVisible(bool visible)
+    internal void ToggleDesktopNotes()
     {
-        if (visible) notesSuppressed = false;
-        var placements = Store.All().Where(x => x.Note.DeletedAt == null && x.Note.ArchivedAt == null)
-            .Select(x => Store.GetPlacement(x.Note.Id) with { Visible = visible }).ToList();
-        Store.SavePlacements(placements);
-        minimizedStacks.Clear(); UpdateSummonLabel();
-        ReconcileWindows();
+        if (!notesSuppressed && minimizedStacks.Count > 0 && !stickies.Values.Any(w => w.IsVisible))
+        {
+            SummonNotes();
+            return;
+        }
+        notesSuppressed = !notesSuppressed;
+        if (notesSuppressed)
+        {
+            FlushWindows();
+            CloseStickies();
+        }
+        else ReconcileWindows(animateOpening: false);
+        Changed?.Invoke();
     }
     public void ShowManager() { if (manager == null) { manager = new ManagerWindow(this); manager.Closed += (_, _) => manager = null; } manager.Show(); manager.WindowState = WindowState.Normal; manager.Activate(); }
     public void ShowSettings()
@@ -833,7 +847,7 @@ public sealed class DeskController : IDisposable
                 || (w.StackId is Guid group ? !groupedNotes.ContainsKey(group) : !loose.Contains(w.NoteId)))
                 w.CloseFromController();
         }
-        if (minimizedStacks.RemoveWhere(group => !groupedNotes.ContainsKey(group)) > 0) UpdateSummonLabel();
+        minimizedStacks.RemoveWhere(group => !groupedNotes.ContainsKey(group));
         var currentStacks = stickies.Values.Where(w => w.StackId.HasValue).ToDictionary(w => w.StackId!.Value);
         foreach (var (group, notes) in groupedNotes)
         {
@@ -906,7 +920,7 @@ public sealed class DeskController : IDisposable
     }
     public void Dispose()
     {
-        if (disposed) return; disposed = true; refresh.Stop(); backupTimer.Stop(); FlushWindows(); CloseStickies(); tray.Visible = false; tray.Dispose(); hotkey.Dispose(); summonHotkey.Dispose();
+        if (disposed) return; disposed = true; refresh.Stop(); backupTimer.Stop(); FlushWindows(); CloseStickies(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); hotkey.Dispose(); summonHotkey.Dispose();
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged;
         Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
         SystemParameters.StaticPropertyChanged -= SystemParametersChanged;

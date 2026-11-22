@@ -42,6 +42,49 @@ internal static class StackMenu
         menu.IsOpen = true;
     }
 
+    public static void Projects(DeskController desk, FrameworkElement target)
+    {
+        if (!desk.Settings.StackedNotes) return;
+        var store = desk.Store;
+        var owner = Window.GetWindow(target);
+        var menu = new ContextMenu { PlacementTarget = target, Placement = PlacementMode.Bottom };
+        var ids = NonemptyStacks(store).Select(stack => stack.Id).ToHashSet();
+        var stacks = store.AllStacks().Where(stack => stack.Id != Guid.Empty && ids.Contains(stack.Id) && !DeskController.IsProjectExample(stack.Id))
+            .OrderBy(stack => stack.Name, StringComparer.CurrentCulture).ToArray();
+        foreach (var stack in stacks.Where(stack => ProjectSource.Normalize(stack.ProjectSource) != null))
+        {
+            Add(menu, L.F("Продолжить «{0}»", stack.Name), () =>
+            {
+                if (!ReferenceEquals(store, desk.Store) || desk.ResumeProject(stack.Id) is not { } source) return;
+                if (ProjectSource.Open(source) is { } error)
+                    MessageBox.Show(owner, error, "PaperDesk", MessageBoxButton.OK, MessageBoxImage.Information);
+            });
+        }
+        if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+
+        Add(menu, L.T("Новый проект…"), () =>
+        {
+            if (ProjectSourceDialog.Show(owner) is not { } input || !ReferenceEquals(store, desk.Store) ||
+                input.Source is not { } source) return;
+            if (desk.CreateProject(input.Name, source) is Guid id) desk.ResumeProject(id);
+        });
+
+        if (stacks.Length > 0)
+        {
+            var configure = new MenuItem { Header = L.T("Прикрепить файл или ссылку…") };
+            foreach (var stack in stacks)
+                Add(configure, stack.Name, () => EditSource(desk, stack.Id, owner));
+            menu.Items.Add(configure);
+        }
+        menu.IsOpen = true;
+    }
+
+    internal static void EditSource(DeskController desk, Guid id, Window? owner)
+    {
+        if (desk.Store.GetStack(id) is { } stack && ProjectSourceDialog.Show(owner, stack) is { } input)
+            desk.SetProjectSource(id, input.Source);
+    }
+
     internal static IEnumerable<(Guid Id, string Name)> NonemptyStacks(NoteStore store)
     {
         var placements = store.AllPlacements();
@@ -62,7 +105,7 @@ internal static class StackMenu
         if (name != null && ReferenceEquals(store, desk.Store)) desk.RenameStack(id, name);
     }
 
-    private static void Add(ContextMenu menu, string label, Action action)
+    private static void Add(ItemsControl menu, string label, Action action)
     {
         var item = new MenuItem { Header = new TextBlock { Text = label, MaxWidth = 330, TextTrimming = TextTrimming.CharacterEllipsis }, ToolTip = label };
         item.Click += (_, _) => action();

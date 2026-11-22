@@ -125,12 +125,20 @@ static class WindowsShellChecks
             var hidden = desk.Store.All().Single(row => row.Note.Title == "Hide explicitly").Note.Id;
             windows.Single(window => window.NoteId == hidden).Close();
         }
+        var visible = app.Windows.OfType<StickyWindow>().Where(window => window.IsVisible)
+            .Select(window => (window.NoteId, window.Left, window.Top)).ToHashSet();
+        desk.ToggleDesktopNotes();
+        Require(!app.Windows.OfType<StickyWindow>().Any(window => window.IsVisible), "The tray toggle must hide visible notes.");
+        desk.ToggleDesktopNotes();
+        Require(visible.SetEquals(app.Windows.OfType<StickyWindow>().Where(window => window.IsVisible)
+            .Select(window => (window.NoteId, window.Left, window.Top))),
+            "The tray toggle must restore the same open notes and positions without opening explicitly hidden notes.");
         app.Dispatcher.BeginInvoke((Action)desk.Exit);
         app.Run();
         var placements = desk.Store.All().ToDictionary(row => row.Note.Title, row => desk.Store.GetPlacement(row.Note.Id).Visible);
         Require(placements.Count == 4 && placements["Loose"] && placements["Top"] && placements["Underneath"] &&
             !placements["Hide explicitly"], "Exiting from the tray must preserve desktop placement and respect explicitly hidden notes.");
-        Console.WriteLine("PASS tray exit preserves the loose sheet, stack and explicitly hidden note");
+        Console.WriteLine("PASS tray hide, restore and exit preserve the loose sheet, stack and explicitly hidden note");
         return 0;
 
         void Save(string title, Guid? stackId)

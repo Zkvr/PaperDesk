@@ -22,6 +22,7 @@ internal static class ProfileStorageChecks
         RequireThrows<ArgumentException>(() => ProfileStorage.Resolve(["--data"], app, local));
         Console.WriteLine("PASS portable, installed and explicit profile selection");
         CheckBackups(testRoot);
+        CheckCachedProfile(testRoot);
 
         var oldDb = Path.Combine(legacy, "profiles", "local", "notes.db");
         Directory.CreateDirectory(Path.GetDirectoryName(oldDb)!);
@@ -95,6 +96,29 @@ internal static class ProfileStorageChecks
         RequireThrows<IOException>(() => ProfileStorage.Migrate(retryRoot, legacy));
         Console.WriteLine("PASS failed, busy and conflicting profiles are preserved and migration can be retried");
         return 0;
+    }
+
+    private static void CheckCachedProfile(string root)
+    {
+        var data = Path.Combine(root, "offline");
+        var user = Guid.NewGuid();
+        const string address = "https://example.org/";
+        var hash = System.Security.Cryptography.SHA256.HashData("https://example.org"u8);
+        var profile = $"{Convert.ToHexString(hash)[..16]}-{user:D}";
+        var db = Path.Combine(data, "profiles", profile, "notes.db");
+        var saved = Json.Write(new { last_user_id = user, supabase_url = address });
+        var note = new Note { Body = "A note cached on this computer" };
+        Require(OfflineProfile.Resolve(data, saved, null) == ("local", Guid.Empty),
+            "An earlier account without a cached database must open the local profile");
+        using (var store = new NoteStore(db, user)) store.Save(note);
+        var selected = OfflineProfile.Resolve(data, saved, null);
+        Require(selected == (profile, user) && OfflineProfile.Resolve(data, null, selected.Name) == selected,
+            "The previous cached profile and owner must survive running without account settings");
+        using (var store = new NoteStore(db, selected.Owner))
+            Require(store.Find(note.Id)?.Note.Body == note.Body, "The cached profile must preserve its existing notes");
+        Require(OfflineProfile.Resolve(data, null, "..\\other") == ("local", Guid.Empty),
+            "A saved profile value cannot address paths outside the profile folder");
+        Console.WriteLine("PASS an existing cached Windows profile remains available offline");
     }
 
     private static void CheckBackups(string root)

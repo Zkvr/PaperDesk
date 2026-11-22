@@ -33,7 +33,7 @@ try {
     New-Item -ItemType Directory -Path $productsDir | Out-Null
     $publishArgs = @($project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
         '--artifacts-path', (Join-Path $build 'msbuild'), '-o', $stage, '-m:1',
-        '-p:UseSharedCompilation=false', '-p:PaperDeskLocalOnly=true', '-p:DebugType=None',
+        '-p:UseSharedCompilation=false', '-p:DebugType=None',
         '-p:IncludeSourceRevisionInInformationalVersion=false', "-p:PathMap=$root=/_/")
     & $sdk publish @publishArgs
     if ($LASTEXITCODE) { throw "Windows publish failed ($LASTEXITCODE)" }

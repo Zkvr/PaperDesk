@@ -1,75 +1,106 @@
+using System.Windows.Automation;
 using System.Windows.Controls.Primitives;
 using PaperDesk.Desktop.Controls;
 using PaperDesk.Desktop.Services;
 
 namespace PaperDesk.Desktop.Views;
 
-public sealed class SettingsWindow : Window
+internal sealed class SettingsWindow : UtilityWindow
 {
     private readonly DeskController desk;
-    private readonly StackPanel panel = new() { Margin = new Thickness(26) };
-    private readonly TextBox shortcut, summonShortcut;
-    private readonly CheckBox desktop = new() { Content = L.T("Слой рабочего стола (экспериментальный)"), Margin = new Thickness(0, 14, 0, 10) };
-    private readonly CheckBox animations = new() { Content = L.T("Анимации листиков"), Margin = new Thickness(0, 0, 0, 10) };
-    private readonly CheckBox nativeEditor = new() { Content = L.T("Лёгкий редактор (после перезапуска)"), Margin = new Thickness(0, 14, 0, 0),
-        ToolTip = L.T("Открывать заметки во встроенном редакторе Windows без WebView2.") };
-    private readonly CheckBox snapNotes = new() { Content = L.T("Привязывать листики к соседним краям"), Margin = new Thickness(0, 0, 0, 10) };
-    private readonly CheckBox stacked = new() { Content = L.T("Показывать листики стопками"), Margin = new Thickness(0, 12, 0, 10) };
-    private readonly CheckBox startup = new() { Content = L.T("Запускать при входе в Windows"), Margin = new Thickness(0, 0, 0, 10) };
-    private readonly CheckBox trayStartup = new() { Content = L.T("При автозапуске открывать только трей"), Margin = new Thickness(22, 0, 0, 10) };
-    private readonly CheckBox noteStartup = new() { Content = L.T("При запуске показывать открытые листики"), Margin = new Thickness(0, 0, 0, 10) };
-    private readonly TextBlock message = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
-    public SettingsWindow(DeskController controller)
+    private readonly TextBlock message = Secondary("");
+
+    internal SettingsWindow(DeskController controller) : base(L.T("Параметры"), null, 664, 508)
     {
-        desk = controller; Style = (Style)Application.Current.FindResource(typeof(Window)); Title = L.T("PaperDesk — параметры"); Width = 570; Height = 790; WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        panel.Children.Add(new TextBlock { Text = L.T("Параметры"), FontSize = 25, FontWeight = FontWeights.SemiBold });
-        panel.Children.Add(ThemeSection());
-        panel.Children.Add(new TextBlock { Text = L.T("Заметки и изображения хранятся на этом компьютере."),
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) });
-        panel.Children.Add(message);
-        if (!string.IsNullOrEmpty(desk.HotkeyWarning)) message.Text = desk.HotkeyWarning;
-        panel.Children.Add(new Separator());
-        shortcut = Field(L.T("Новый листик"), desk.Settings.Hotkey);
-        summonShortcut = Field(L.T("Вызвать заметки поверх окон"), desk.Settings.SummonHotkey);
-        desktop.IsChecked = desk.Settings.DesktopLayer; animations.IsChecked = desk.Settings.Animations; startup.IsChecked = desk.Settings.AutoStart;
-        snapNotes.IsChecked = desk.Settings.SnapNotes;
-        trayStartup.IsChecked = desk.Settings.StartInTray;
-        trayStartup.IsEnabled = startup.IsChecked == true;
-        startup.Checked += (_, _) => trayStartup.IsEnabled = true;
-        startup.Unchecked += (_, _) => trayStartup.IsEnabled = false;
-        noteStartup.IsChecked = desk.Settings.ShowNotesAtStartup;
-        panel.Children.Add(new TextBlock { Text = L.T("Жесты и анимация"), FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 13, 0, 8) });
-        panel.Children.Add(animations);
-        panel.Children.Add(snapNotes);
-        panel.Children.Add(desktop); panel.Children.Add(startup);
-        panel.Children.Add(trayStartup); panel.Children.Add(noteStartup);
-        stacked.IsChecked=desk.Settings.StackedNotes; panel.Children.Add(stacked);
-        panel.Children.Add(new TextBlock { Text = L.T("Если Explorer не поддерживает слой рабочего стола, используются обычные окна. Закрытые листики остаются в менеджере."), FontSize = 11, TextWrapping = TextWrapping.Wrap });
-        nativeEditor.IsChecked = desk.Settings.NativeEditor;
-        panel.Children.Add(nativeEditor);
-        var save = new Button { Content = L.T("Сохранить параметры"), Margin = new Thickness(0, 18, 0, 8) }; panel.Children.Add(save);
+        desk = controller;
+        var settings = desk.Settings;
+        var appearance = Section(L.T("Оформление"));
+        appearance.Children.Add(ThemeChoices());
+        Group(appearance, L.T("Листики на рабочем столе"));
+        var animations = Option(appearance, L.T("Анимации листиков"), settings.Animations);
+        var snap = Option(appearance, L.T("Привязывать листики к соседним краям"), settings.SnapNotes);
+
+        var behavior = Section(L.T("Поведение"));
+        var stacks = Option(behavior, L.T("Показывать листики стопками"), settings.StackedNotes);
+        var desktop = Option(behavior, L.T("Слой рабочего стола (экспериментальный)"), settings.DesktopLayer);
+        desktop.ToolTip = L.T("Если Explorer не поддерживает слой рабочего стола, используются обычные окна.");
+        var editor = Option(behavior, L.T("Лёгкий редактор (после перезапуска)"), settings.NativeEditor);
+        editor.ToolTip = L.T("Открывать заметки во встроенном редакторе Windows без WebView2.");
+        Group(behavior, L.T("Запуск Windows"));
+        var startup = Option(behavior, L.T("Запускать при входе в Windows"), settings.AutoStart);
+        var tray = Option(behavior, L.T("При автозапуске открывать только трей"), settings.StartInTray);
+        tray.Margin = new Thickness(20, 5, 0, 6);
+        tray.IsEnabled = settings.AutoStart;
+        startup.Checked += (_, _) => tray.IsEnabled = true;
+        startup.Unchecked += (_, _) => tray.IsEnabled = false;
+        var notes = Option(behavior, L.T("При запуске показывать открытые листики"), settings.ShowNotesAtStartup);
+
+        var keys = Section(L.T("Горячие клавиши"));
+        var shortcut = Field(keys, L.T("Новый листик"), settings.Hotkey);
+        var summon = Field(keys, L.T("Вызвать заметки поверх окон"), settings.SummonHotkey);
+        keys.Children.Add(Secondary(L.T("Введите сочетание, например Ctrl+Alt+N.")));
+
+        var save = new Button { Content = L.T("Сохранить параметры"), Padding = new Thickness(14, 7, 14, 7), VerticalAlignment = VerticalAlignment.Center, Style = (Style)FindResource("AccentButton") };
+        var footer = new DockPanel { Margin = new Thickness(20, 0, 18, 14) };
+        message.VerticalAlignment = VerticalAlignment.Center;
+        message.Margin = new Thickness(0, 0, 9, 0);
+        var folder = Secondary(L.T("Данные: ") + desk.DataRoot);
+        folder.TextTrimming = TextTrimming.CharacterEllipsis;
+        folder.TextWrapping = TextWrapping.NoWrap;
+        folder.ToolTip = desk.DataRoot;
+        folder.FontSize = 11;
+        if (desk.HotkeyWarning.Length > 0) message.Text = desk.HotkeyWarning;
+        DockPanel.SetDock(save, Dock.Right);
+        footer.Children.Add(save);
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        info.Children.Add(message);
+        info.Children.Add(folder);
+        footer.Children.Add(info);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        Body.Children.Add(footer);
+        AddSections((L.T("Оформление"), appearance), (L.T("Поведение"), behavior), (L.T("Горячие клавиши"), keys));
+
         save.Click += (_, _) =>
         {
             try
             {
                 desk.UpdateSettings(desk.Settings with
                 {
-                    Hotkey = shortcut.Text, SummonHotkey = summonShortcut.Text, DesktopLayer = desktop.IsChecked == true,
-                    Animations = animations.IsChecked == true, NativeEditor = nativeEditor.IsChecked == true,
-                    SnapNotes = snapNotes.IsChecked == true, AutoStart = startup.IsChecked == true,
-                    StartInTray = trayStartup.IsChecked == true, ShowNotesAtStartup = noteStartup.IsChecked == true, StackedNotes = stacked.IsChecked == true
+                    Hotkey = shortcut.Text, SummonHotkey = summon.Text, DesktopLayer = desktop.IsChecked == true,
+                    Animations = animations.IsChecked == true, NativeEditor = editor.IsChecked == true,
+                    SnapNotes = snap.IsChecked == true, AutoStart = startup.IsChecked == true,
+                    StartInTray = tray.IsChecked == true, ShowNotesAtStartup = notes.IsChecked == true, StackedNotes = stacks.IsChecked == true
                 });
                 message.Text = L.T("Параметры сохранены.");
             }
             catch (Exception ex) { message.Text = ex.Message; }
         };
-        panel.Children.Add(new TextBlock { Text = L.T("Данные: ") + desk.DataRoot, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
     }
-    private Border ThemeSection()
+
+    private static void Group(Panel panel, string title) => panel.Children.Add(new TextBlock
+    {
+        Text = title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 20, 0, 7)
+    });
+
+    private CheckBox Option(Panel panel, string title, bool selected)
+    {
+        var option = new CheckBox { IsChecked = selected, Content = title, Style = (Style)FindResource("SettingsToggle"), Margin = new Thickness(0, 2, 0, 2) };
+        panel.Children.Add(option);
+        return option;
+    }
+
+    private static TextBox Field(Panel panel, string title, string value)
+    {
+        panel.Children.Add(new TextBlock { Text = title, Margin = new Thickness(0, 3, 0, 6) });
+        var input = new TextBox { Text = value, Margin = new Thickness(0, 0, 0, 13) };
+        AutomationProperties.SetName(input, title);
+        panel.Children.Add(input);
+        return input;
+    }
+
+    private FrameworkElement ThemeChoices()
     {
         var content = new StackPanel();
-        content.Children.Add(new TextBlock { Text = L.T("Оформление"), FontSize = 18, FontWeight = FontWeights.SemiBold });
         var themes = new UniformGrid { Columns = 3, Margin = new Thickness(-4, 9, -4, 0) };
         content.Children.Add(themes);
         var selected = ThemePalette.Find(desk.Settings.Theme);
@@ -104,17 +135,7 @@ public sealed class SettingsWindow : Window
             var current = Array.IndexOf(ThemePalette.Choices, ThemePalette.Find(desk.Settings.Theme));
             ((RadioButton)themes.Children[current]).IsChecked = true;
         }
-        var card = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(14), Margin = new Thickness(0, 14, 0, 16), Child = content };
-        card.SetResourceReference(Border.BackgroundProperty, "DeskPanel");
-        return card;
+        return content;
     }
 
-    private TextBox Field(string title, string value, Panel? parent = null)
-    {
-        parent ??= panel;
-        parent.Children.Add(new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 9, 0, 4) });
-        var input = new TextBox { Text = value, Margin = new Thickness(0, 0, 0, 5) };
-        parent.Children.Add(input);
-        return input;
-    }
 }

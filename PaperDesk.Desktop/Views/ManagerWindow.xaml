@@ -35,7 +35,7 @@
           <TextBlock Text="PaperDesk" FontFamily="Segoe Print" FontSize="19" VerticalAlignment="Center"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,9,10,0" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-          <Button Content="&#xE897;" Style="{StaticResource WindowButton}" Click="HelpClick" ToolTip="{paper:T Text='Горячие клавиши и жесты'}" AutomationProperties.Name="{paper:T Text='Горячие клавиши и жесты'}"/>
+          <Button Content="&#xE897;" Style="{StaticResource WindowButton}" Click="HelpClick" ToolTip="{paper:T Text='Справка PaperDesk'}" AutomationProperties.Name="{paper:T Text='Справка PaperDesk'}"/>
           <Button Content="&#xE921;" Style="{StaticResource WindowButton}" Click="MinimizeClick" ToolTip="{paper:T Text='Свернуть'}" AutomationProperties.Name="{paper:T Text='Свернуть'}"/>
           <Button Content="&#xE922;" Style="{StaticResource WindowButton}" Click="MaximizeClick" ToolTip="{paper:T Text='Развернуть / восстановить'}" AutomationProperties.Name="{paper:T Text='Развернуть или восстановить'}"/>
           <Button Content="&#xE8BB;" Style="{StaticResource WindowButton}" Click="CloseClick" ToolTip="{paper:T Text='Закрыть в трей'}" AutomationProperties.Name="{paper:T Text='Закрыть менеджер'}"/>
@@ -56,10 +56,11 @@
               <RadioButton x:Name="ConflictsSection" Visibility="Collapsed" Style="{StaticResource NavItem}" GroupName="Sections" Tag="conflict" Click="FilterClick" AutomationProperties.Name="{paper:T Text='Конфликты'}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets"/><TextBlock Grid.Column="1" Text="{paper:T Text='Конфликты'}"/></Grid></RadioButton>
             </StackPanel>
             <StackPanel DockPanel.Dock="Bottom">
+              <Button x:Name="ProjectsButton" Content="{paper:T Text='Проекты ▾'}" Click="ProjectsClick" FontSize="12" HorizontalAlignment="Stretch" Margin="3,0,3,8" Padding="10,8" ToolTip="{paper:T Text='Продолжить проект и открыть его источник'}"/>
               <Button x:Name="DesktopStacksButton" Content="{paper:T Text='Стопки на столе ▾'}" Click="DesktopStacksClick" FontSize="12" HorizontalAlignment="Stretch" Margin="3,0,3,12" Padding="10,8" ToolTip="{paper:T Text='Показать выбранную стопку на рабочем столе'}"/>
-              <TextBlock Text="{Binding Account}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedInk}" Margin="12,0,8,7"/>
+              <TextBlock Text="{Binding StorageLocation}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedInk}" Margin="12,0,8,7"/>
               <StackPanel Orientation="Horizontal">
-                <Button Content="{paper:T Text='⚙  Параметры'}" Click="SettingsClick" FontSize="12" Padding="10,8" ToolTip="{paper:T Text='Параметры, аккаунт и синхронизация'}"/>
+                <Button Content="{paper:T Text='⚙  Параметры'}" Click="SettingsClick" FontSize="12" Padding="10,8" ToolTip="{paper:T Text='Параметры'}"/>
                 <Button x:Name="UpdateButton" Visibility="Collapsed" Click="DownloadUpdate" Style="{StaticResource AccentButton}" Width="34" Padding="0" Margin="2,3,0,3" Content="&#xE896;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
               </StackPanel>
             </StackPanel>
@@ -86,6 +87,7 @@
               <TextBlock Text="{paper:T Text='Откройте пример с чек-листом или создайте свой листик. Подсказки по стопкам и клавишам доступны по кнопке справки.'}" TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" Margin="0,5,0,8"/>
               <WrapPanel>
                 <Button x:Name="WelcomeExampleButton" Content="{paper:T Text='Открыть пример'}" Click="ExampleClick" Style="{StaticResource AccentButton}" Padding="10,6"/>
+                <Button Content="{paper:T Text='Обучение'}" Click="HelpClick" Padding="10,6"/>
                 <Button x:Name="WelcomeDismissButton" Content="{paper:T Text='Пропустить'}" Click="DismissWelcomeClick" Padding="10,6"/>
               </WrapPanel>
             </StackPanel>
@@ -174,6 +176,7 @@
             </paper:PaperSurface>
             <paper:PaperCrumple x:Name="EditorCrumple" Grid.Row="1"/>
             <StackPanel x:Name="EditorActions" Grid.Row="2" Margin="0,11,0,0">
+              <Button x:Name="ProjectSourceButton" Content="{paper:T Text='Прикрепить файл или ссылку…'}" Click="ProjectSourceClick" Visibility="Collapsed" HorizontalAlignment="Left" Background="{DynamicResource AccentTint}" Foreground="{DynamicResource Accent}" Padding="8,5" FontSize="12" Margin="0,0,0,5"/>
               <TextBlock x:Name="EditorHint" Foreground="{StaticResource MutedInk}" FontSize="11" TextWrapping="Wrap" Margin="3,0,0,6"/>
               <DockPanel>
                 <Button x:Name="MoreButton" DockPanel.Dock="Right" Content="•••" Click="NoteMenuClick" ToolTip="{paper:T Text='Действия с заметкой'}" AutomationProperties.Name="{paper:T Text='Действия с заметкой'}"/>

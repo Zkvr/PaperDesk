@@ -50,6 +50,9 @@ public record DesktopStack(Guid Id, string Name, double X, double Y, double Widt
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid[]? SheetOrder { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProjectSource { get; init; }
 }
 
 public record Backup(int Version, DateTimeOffset ExportedAt, List<Note> Notes, List<Placement> Placements,

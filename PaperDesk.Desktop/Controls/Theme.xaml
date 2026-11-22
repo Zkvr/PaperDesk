@@ -128,6 +128,35 @@
     </Setter>
   </Style>
   <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{StaticResource Ink}"/></Style>
+  <Style x:Key="SettingsToggle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="CheckBox">
+          <Grid x:Name="ToggleRow" Background="Transparent" MinHeight="26">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="37"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border x:Name="Track" Width="30" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center"
+                    CornerRadius="8" BorderThickness="1" BorderBrush="#759DA4AF" Background="{DynamicResource DeskField}">
+              <Ellipse x:Name="Thumb" Width="8" Height="8" Fill="{StaticResource MutedInk}"
+                       VerticalAlignment="Center" HorizontalAlignment="Left" Margin="3,0"/>
+            </Border>
+            <TextBlock Grid.Column="1" Text="{TemplateBinding Content}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentTint}"/>
+              <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentOutline}"/>
+              <Setter TargetName="Thumb" Property="Fill" Value="{DynamicResource Accent}"/>
+              <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Ink}"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ToggleRow" Property="Opacity" Value="0.45"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
   <Style TargetType="Separator"><Setter Property="Background" Value="#16FFFFFF"/><Setter Property="Margin" Value="4,9"/></Style>
   <Path x:Key="FormatGlyph" x:Shared="False" Width="16" Height="16" Stretch="Uniform"
         Data="M1,13 L5,3 L9,13 M2.4,9.5 H7.6 M11,5 H16 M11,9 H16 M11,13 H16"

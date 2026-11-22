@@ -1,6 +1,5 @@
 using PaperDesk.Core;
 using PaperDesk.Storage;
-using System.Net;
 using System.Text;
 
 if (args is ["--interrupted-write", var interruptedPath])
@@ -560,9 +559,4 @@ sealed class TestCloud : ICloudNotes
         return Task.FromResult(result);
     }
     public Task<IReadOnlyList<Note>> FetchAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<Note>>(Notes.Values.ToList());
-}
-
-sealed class WireHandler(Func<HttpRequestMessage, Task<string>> respond) : HttpMessageHandler
-{
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => new(HttpStatusCode.OK) { Content = new StringContent(await respond(request), Encoding.UTF8, "application/json") };
 }

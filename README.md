@@ -38,7 +38,7 @@ Click the trash icon. The upper note crumples, revealing the note just beneath i
 
 ## Themes and paper
 
-Switch between Graphite, Ocean, Clay in **Settings → Appearance**. The theme applies immediately to the manager.
+Switch between Graphite, Ocean, and Clay in **Settings → Appearance**. The theme applies immediately to the manager.
 
 ![PaperDesk manager in the Ocean theme with pastel paper cards and a checklist.](media/manager-ocean.png)
 
@@ -53,6 +53,10 @@ Click the color dot on a sheet to choose its color, texture, corners, shadow, tr
 - Edit checklists, tables, and spoilers on the paper. Paste or drag in an image and choose inline, wrap, or overlay placement.
 - Find a note with **Ctrl+F** and open it with **Enter**. Keep favorites at the top and move several notes into a stack together.
 - Export notes, images, and desktop stacks to a JSON backup you can restore on another PC.
+
+## Project files in the current source
+
+Select a note from a named stack and choose **Attach file or link…** below the editor. The **Projects** menu can reopen that file or link and return to the last sheet in its stack. The **Help → Projects** tab has examples to try.
 
 ## Start writing
 
@@ -75,3 +79,4 @@ The Windows editor uses Tiptap and ProseMirror inside Microsoft Edge WebView2. T
 
 [Packaging and release process](docs/RELEASING.md)
 
+Made by [Zkvr](https://github.com/Zkvr).

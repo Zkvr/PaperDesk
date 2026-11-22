@@ -23,7 +23,7 @@ public sealed class ManagerViewModel : INotifyPropertyChanged
         this.desk = desk;
         Notes = new(notes);
     }
-    public string Account => desk.Account;
+    public string StorageLocation => desk.StorageLocation;
     public string Status => desk.Status;
     public string Count => Notes.Count.ToString();
     public int AllCount { get; private set; }
@@ -119,7 +119,7 @@ public sealed class ManagerViewModel : INotifyPropertyChanged
         else if (Filter is "visible" or "hidden")
             rows = rows.OrderByDescending(item => item.Card.Favorite);
         notes.Update(rows.Select(item => item.Card).ToList());
-        foreach (var prop in new[] { nameof(Account), nameof(Status), nameof(Count), nameof(AllCount), nameof(VisibleCount), nameof(OffDeskCount), nameof(FavoriteCount), nameof(ArchiveCount), nameof(TrashCount) }) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
+        foreach (var prop in new[] { nameof(StorageLocation), nameof(Status), nameof(Count), nameof(AllCount), nameof(VisibleCount), nameof(OffDeskCount), nameof(FavoriteCount), nameof(ArchiveCount), nameof(TrashCount) }) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
     }
 
     private sealed record CachedCard(LocalNote Row, NoteCard Card, Placement Placement);

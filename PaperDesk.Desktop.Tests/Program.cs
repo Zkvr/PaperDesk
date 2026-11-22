@@ -31,6 +31,7 @@ static partial class UiChecks
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
         Require(PaperDesk.Core.L.T("Все заметки") == "All notes", "English UI strings must load from the embedded resource");
         Require(PaperDesk.Core.L.T("Стопки на столе ▾") == "Desktop stacks ▾", "Stack controls must be localized");
+        Require(PaperDesk.Core.L.T("Проекты ▾") == "Projects ▾", "Project controls must be localized");
         System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
         Require(PaperDesk.Core.L.T("Все заметки") == "Все заметки", "Russian UI strings must follow the UI culture");
         var englishAppearance = args is ["--appearance", _, "en"];
@@ -46,6 +47,7 @@ static partial class UiChecks
             return PerformanceChecks.MeasureIdleRender(idleFolder, web: args[2] == "web", software: args[3] == "software");
         if (args is ["--manager-scale", var managerFolder]) return PerformanceChecks.CheckScrolling(managerFolder);
         if (args is ["--usability", var usabilityFolder]) return UsabilityChecks.Run(usabilityFolder);
+        if (args is ["--projects", var projectsFolder]) { CheckProjects(projectsFolder); return 0; }
         if (args is ["--windows-shell", var shellFolder]) return WindowsShellChecks.CheckDesktop(shellFolder);
         if (args is ["--tray-exit", var trayFolder]) return WindowsShellChecks.CheckTrayExit(trayFolder);
         if (args is ["--editor-lifetime", var lifetimeFolder]) return WebEditorChecks.RunLifetime(lifetimeFolder);
@@ -148,6 +150,7 @@ static partial class UiChecks
         var darkLabel=new TextBlock{Text="Все заметки"};var darkHost=new Grid{Width=200,Height=35};darkHost.SetValue(System.Windows.Documents.TextElement.ForegroundProperty,app.FindResource("Ink"));darkHost.Children.Add(darkLabel);Layout(darkHost);Require(Contrast(((SolidColorBrush)darkLabel.Foreground).Color,Color.FromRgb(27,30,36))>10,"Manager labels must retain their light foreground");
         Console.WriteLine("PASS rendered paper button labels remain readable on every paper");
         CheckDesktopStacks(folder);
+        CheckProjects(folder);
         CheckTrashGrid(folder);
         CheckPictures(folder);
         CheckPeelAndDrop(folder);
@@ -433,6 +436,27 @@ static partial class UiChecks
             Require(!conflicts.IsVisible && ((TextBlock)manager.FindName("FilterTitle")).Text == "Все заметки",
                 "Resolving the last conflict must return the manager to All notes");
             Console.WriteLine("PASS changing sections resets selection, and conflicts navigation appears only when needed");
+
+            var dragCard = cards.Items.OfType<NoteCard>().Single(card => card.Id == active.Id);
+            cards.SelectedItem = dragCard;
+            manager.UpdateLayout();
+            var dragItem = (ListBoxItem)cards.ItemContainerGenerator.ContainerFromItem(dragCard);
+            Require(Mouse.Capture(cards, CaptureMode.SubTree), "The fixture must reproduce ListBox drag-selection capture");
+            cards.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent, Source = dragItem });
+            var tookCapture = false;
+            MouseEventHandler trackCapture = (_, e) => tookCapture |= e.OriginalSource == manager;
+            manager.AddHandler(Mouse.GotMouseCaptureEvent, trackCapture, handledEventsToo: true);
+            cards.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonDownEvent, Source = dragItem, Handled = true });
+            manager.RemoveHandler(Mouse.GotMouseCaptureEvent, trackCapture);
+            Require(Mouse.Captured == manager && ReferenceEquals(cards.SelectedItem, dragCard),
+                $"The manager must take capture from the list without switching the card (capture: {Mouse.Captured}, acquired: {tookCapture})");
+            manager.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
+            Require(Mouse.Captured != manager && ReferenceEquals(cards.SelectedItem, dragCard),
+                "Releasing a card before the drag threshold must keep the selection and release capture");
+            Console.WriteLine("PASS manager drag capture leaves the list selection and releases on click");
 
             var source = PresentationSource.FromVisual(manager)!;
             var fromDevice = source.CompositionTarget!.TransformFromDevice;
@@ -842,12 +866,19 @@ static partial class UiChecks
             settings.Show();
             try
             {
-                Require(!Descendants(settings).OfType<Expander>().Any() &&
-                    Descendants(settings).OfType<TextBlock>().Any(text => text.Text == "Заметки и изображения хранятся на этом компьютере."),
-                    "The local edition must omit cloud setup and show where notes are stored");
+                var pages = Descendants(settings).OfType<RadioButton>().ToArray();
+                pages.Single(page => Equals(page.Content, "Поведение")).IsChecked = true;
+                settings.UpdateLayout();
+                Require(Descendants(settings).OfType<CheckBox>().Any(box => Equals(box.Content, "Запускать при входе в Windows")),
+                    "Behavior settings must keep the Windows startup controls");
+                pages.Single(page => Equals(page.Content, "Горячие клавиши")).IsChecked = true;
+                settings.UpdateLayout();
+                Require(Descendants(settings).OfType<TextBox>().Count() == 2 &&
+                    Descendants(settings).OfType<TextBlock>().Any(text => text.Text.StartsWith("Данные: ", StringComparison.Ordinal)),
+                    "Keyboard settings must show both shortcuts and keep the data location visible");
             }
             finally { settings.Close(); }
-            Console.WriteLine("PASS local settings omit account and cloud setup");
+            Console.WriteLine("PASS themed settings keep behavior, shortcuts and local data location accessible");
         }
         static List<StickyWindow> Windows() => Application.Current.Windows.OfType<StickyWindow>().ToList();
         static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -918,7 +949,10 @@ static partial class UiChecks
                 "Theme selection must update an open manager and persist immediately");
             Require(editor.Text == notes[0].Body && editor.IsEnabled, "Theme switching must keep the selected note editable");
             SaveSized(root, Path.Combine(folder, "manager-ocean.png"));
-            SaveSized(settings, Path.Combine(folder, "settings-themes.png"), 250);
+            SaveSized(settings, Path.Combine(folder, "settings-themes.png"));
+            Require(Descendants(settings).OfType<TextBlock>().Any(text => text.FontSize == 21 &&
+                text.Foreground is SolidColorBrush brush && brush.Color == ((SolidColorBrush)settings.FindResource("Ink")).Color),
+                "Settings headings must inherit the theme foreground");
             manager.ShowUpdate(new ReleaseUpdate("v0.8.1-beta", Installed: false, Size: 100, Sha256: ""));
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
             var update = (Button)manager.FindName("UpdateButton");

@@ -54,6 +54,7 @@ public partial class ManagerWindow : Window
         foreach (var card in vm.Notes)
             if (previous.Contains(card.Id) && !Cards.SelectedItems.Contains(card)) Cards.SelectedItems.Add(card);
         UndoButton.IsEnabled = desk.CanUndo;
+        ProjectsButton.Visibility = desk.Settings.StackedNotes ? Visibility.Visible : Visibility.Collapsed;
         DesktopStacksButton.Visibility = vm.HasDesktopStacks ? Visibility.Visible : Visibility.Collapsed;
         ConflictsSection.Visibility = vm.HasConflicts ? Visibility.Visible : Visibility.Collapsed;
         EmptyState.Visibility = vm.Notes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -105,10 +106,12 @@ public partial class ManagerWindow : Window
             MoreButton.Visibility = Visibility.Visible;
             RestoreButton.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
         }
-        var rejected = row != null && desk.Store.IsRejected(row.Note.Id);
-        EditorHint.Visibility = row?.Conflict != null || rejected ? Visibility.Visible : Visibility.Collapsed;
-        EditorHint.Text = row?.Conflict != null ? L.T("Две версии сохранены. Выберите вариант ниже.")
-            : L.T("Правка осталась на этом устройстве. После редактирования отправим её снова.");
+        var project = canAttach && row != null ? ProjectStack(row.Note.Id) : null;
+        ProjectSourceButton.Visibility = project == null ? Visibility.Collapsed : Visibility.Visible;
+        ProjectSourceButton.Content = L.T(project?.ProjectSource == null ? "Прикрепить файл или ссылку…" : "Источник проекта…");
+        ProjectSourceButton.ToolTip = project?.ProjectSource ?? L.T("Файл или ссылка для всей стопки");
+        EditorHint.Visibility = row?.Conflict != null ? Visibility.Visible : Visibility.Collapsed;
+        EditorHint.Text = L.T("Две версии сохранены. Выберите вариант ниже.");
         ConflictButton.Visibility = row?.Conflict != null ? Visibility.Visible : Visibility.Collapsed; loading = false;
     }
     private void CardSelected(object sender, SelectionChangedEventArgs e)
@@ -156,6 +159,7 @@ public partial class ManagerWindow : Window
     private void AssignStackClick(object sender, RoutedEventArgs e) => StackMenu.Assign(desk, (FrameworkElement)sender, SelectedIds());
     private void ExtractStackClick(object sender, RoutedEventArgs e) => desk.ExtractFromStack(SelectedIds());
     private void DesktopStacksClick(object sender, RoutedEventArgs e) => StackMenu.Show(desk, (FrameworkElement)sender);
+    private void ProjectsClick(object sender, RoutedEventArgs e) => StackMenu.Projects(desk, (FrameworkElement)sender);
     private void BulkArchiveClick(object sender, RoutedEventArgs e) => ApplyBulk("archive");
     private void BulkTrashClick(object sender, RoutedEventArgs e) => ApplyBulk("trash");
     private void BulkRestoreClick(object sender, RoutedEventArgs e) => ApplyBulk("restore");
@@ -331,11 +335,13 @@ public partial class ManagerWindow : Window
         Refresh();
     }
     private void HelpClick(object sender, RoutedEventArgs e) => ShowHelp();
-    private void ShowHelp() => MessageBox.Show(this,
-        L.T("Верхняя ручка перемещает заметку или стопку. Перетащите её на другую заметку, чтобы собрать стопку. Потяните нижнюю ручку, чтобы отделить один листик.") +
-        "\n\n" + L.T("Ctrl+N — новый листик в менеджере\nCtrl+F — поиск, Enter — открыть результат\nDelete — отправить выбранное в корзину\nCtrl+Page Up / Page Down — сменить листик в открытой стопке\nCtrl+Shift+F — форматирование при редактировании") +
-        "\n\n" + L.F("{0} — новый листик на столе\n{1} — показать листики поверх окон", desk.Settings.Hotkey, desk.Settings.SummonHotkey),
-        L.T("Горячие клавиши и жесты"), MessageBoxButton.OK);
+    private void ShowHelp() => new HelpWindow(this, desk).ShowDialog();
+    private void ProjectSourceClick(object sender, RoutedEventArgs e)
+    {
+        if (selected is Guid note && ProjectStack(note) is { } stack) StackMenu.EditSource(desk, stack.Id, this);
+    }
+    private DesktopStack? ProjectStack(Guid id) => desk.Settings.StackedNotes &&
+        desk.Store.GetPlacement(id).StackId is Guid stack && stack != Guid.Empty ? desk.Store.GetStack(stack) : null;
     private void SettingsClick(object sender, RoutedEventArgs e) => desk.ShowSettings();
     private void ShowClick(object sender, RoutedEventArgs e) { if (selected.HasValue) desk.ShowSticky(selected.Value); }
     private void HideClick(object sender, RoutedEventArgs e) { if (selected.HasValue) desk.HideSticky(selected.Value); }
