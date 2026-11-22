@@ -68,7 +68,7 @@ static partial class UiChecks
         var overlay = StackLanding.Create(owner, from, to, PaperPose.Flat with { Grip = new Point(.8, .9), Peel = .8 },
             Face("Стопка", Brushes.LightBlue), Face("Список дел", Brushes.LemonChiffon));
         var stage = (Canvas)overlay.Content;
-        var bent = (BentPaperView)stage.Children[1];
+        var bent = stage.Children.OfType<BentPaperView>().Single();
         var frame = new System.Windows.Threading.DispatcherFrame();
         var limit = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         limit.Tick += (_, _) => frame.Continue = false;
@@ -97,6 +97,20 @@ static partial class UiChecks
             CompositionTarget.Rendering -= Observe;
             if (overlay.IsVisible) overlay.Close();
         }
+    }
+
+    private static void CheckIncomingInk(Window overlay)
+    {
+        var stage = (Canvas)overlay.Content;
+        overlay.UpdateLayout();
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(stage.ActualWidth), (int)Math.Ceiling(stage.ActualHeight),
+            96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(stage);
+        var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+        bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+        var pink = Enumerable.Range(0, pixels.Length / 4).Count(i =>
+            pixels[4 * i + 3] > 220 && pixels[4 * i] > 135 && pixels[4 * i + 2] - pixels[4 * i + 1] > 25);
+        Require(pink > 1000, "The incoming paper must stay visible over the stack while landing");
     }
 
     private static void CheckPaperBend(string folder, bool captureMotion = false)

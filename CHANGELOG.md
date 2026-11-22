@@ -1,5 +1,9 @@
 # PaperDesk changelog
 
+## 0.9.2-beta
+
+- Keep the incoming sheet visible from release to contact while stacking.
+
 ## 0.9.1-beta
 
 - Put incoming notes at the top of the stack and keep that order when peeling, turning pages, or restoring backups.

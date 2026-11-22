@@ -35,12 +35,15 @@ internal static class StackLanding
         Canvas.SetTop(underneath, to.Top - area.Top);
         stage.Children.Add(underneath);
 
-        incoming.Measure(to.Size);
-        incoming.Arrange(new Rect(to.Size));
-        incoming.UpdateLayout();
+        // A new note preview has no render size until WPF connects and lays out its tree.
+        // Keep the live paper visible from the first frame while the 3D face is prepared.
+        var flat = new Grid { Width = to.Width, Height = to.Height };
+        flat.Children.Add(incoming);
+        stage.Children.Add(flat);
         var bent = new BentPaperView { Width = to.Width, Height = to.Height };
         stage.Children.Add(bent);
         var transform = new MatrixTransform();
+        flat.RenderTransform = transform;
         bent.RenderTransform = transform;
         if (pose.Peel < .002) pose = PaperPose.Flat with { Grip = new Point(from.X < to.X ? .25 : .75, .94) };
         Draw(0);
@@ -68,7 +71,9 @@ internal static class StackLanding
             var delta = (from.TopLeft - to.TopLeft) * (1 - travel);
             transform.Matrix = new Matrix(1 + (from.Width / to.Width - 1) * (1 - travel), 0, 0,
                 1 + (from.Height / to.Height - 1) * (1 - travel), to.Left - area.Left + delta.X, to.Top - area.Top + delta.Y);
+            if (t == 0 && !window.IsLoaded) return;
             bent.Show(incoming, PoseAt(pose, t), shadow: true);
+            if (bent.Visibility == Visibility.Visible) flat.Opacity = 0;
         }
     }
 }

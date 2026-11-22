@@ -484,6 +484,7 @@ static partial class UiChecks
                 "A note created in the manager must stay there");
 
             desk.CreateStack("Стопка 1");
+            desk.Store.SavePlacement(desk.Store.GetPlacement(created) with { Color = "#F2C1CC" });
             window.RaiseForWork();
             var overlay = DesktopCardDrag.CreatePreview(desk, created);
             overlay.Left = window.Left; overlay.Top = window.Top;
@@ -495,6 +496,8 @@ static partial class UiChecks
                 Require(desk.FindCardDropTarget(created, hit) == window,
                     "A preview covering the cursor must pass the drop through to the underlying sticky");
                 Require(desk.StackCard(created, window, overlay), "A card dropped on a loose sheet must create a stack");
+                if (SystemParameters.ClientAreaAnimation)
+                    CheckIncomingInk(window.OwnedWindows.OfType<Window>().Single());
             }
             finally { overlay.Close(); }
             var stack = desk.Store.GetPlacement(active.Id).StackId ?? throw new InvalidOperationException("Missing desktop stack");
