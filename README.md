@@ -14,16 +14,11 @@ PaperDesk puts checklists, notes, and project stacks on your Windows desktop. It
 
 Drag a card from the manager by any point on the paper and release it over a desktop note. The lower note stays in place as the incoming sheet settles onto it. Use the upper grip to move a whole stack. Pull the lower edge to peel off one sheet. Turn on **Snap sheets to nearby edges** in **Settings → Gestures and animation** to line up adjacent notes.
 
-![A lifted checklist travels to the stack. Its free edge unrolls over the note beneath it.](media/stack-and-peel.gif)
+<p align="center">
+  <a href="https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/desktop-tour.mp4"><img src="media/desktop-tour-cover.png" width="340" alt="Watch the 33-second PaperDesk desktop tour"></a>
+</p>
 
-<details>
-  <summary>See a finished sheet crumple</summary>
-
-  <p align="center">
-    <img src="media/paper-motion.gif" width="360" alt="A yellow sheet crumples and reveals the next note in its stack.">
-  </p>
-
-</details>
+[Watch the 33-second desktop tour (MP4)](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/desktop-tour.mp4). Follow the cursor from the manager to the desktop, see how a sideways tug differs from pulling back toward the top, and watch the sheet settle onto a second stack before being discarded.
 
 ## Themes and paper
 
