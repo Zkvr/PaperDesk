@@ -1,6 +1,6 @@
 # PaperDesk changelog
 
-## Unreleased
+## 0.10.0-beta
 
 - Attach a file or link to a named stack and reopen it from Projects.
 - Learn project shortcuts and paper gestures from the themed Help panel.

@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.2-beta"><strong>Download the Windows preview</strong></a>
-  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.2-beta#whats-new">What's new</a>
+  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.10.0-beta"><strong>Download the Windows preview</strong></a>
+  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.10.0-beta#whats-new">What's new</a>
   &nbsp;·&nbsp; <a href="#start-writing">Quick start</a>
 </p>
 
@@ -38,7 +38,7 @@ Click the trash icon. The upper note crumples, revealing the note just beneath i
 
 ## Themes and paper
 
-Switch between Graphite, Ocean, and Clay in **Settings → Appearance**. The theme applies immediately to the manager.
+Switch between Graphite, Ocean, and Clay in **Settings → Appearance**. The theme applies immediately to the manager, settings, help, and tray menu.
 
 ![PaperDesk manager in the Ocean theme with pastel paper cards and a checklist.](media/manager-ocean.png)
 
@@ -54,7 +54,7 @@ Click the color dot on a sheet to choose its color, texture, corners, shadow, tr
 - Find a note with **Ctrl+F** and open it with **Enter**. Keep favorites at the top and move several notes into a stack together.
 - Export notes, images, and desktop stacks to a JSON backup you can restore on another PC.
 
-## Project files in the current source
+## Project files
 
 Select a note from a named stack and choose **Attach file or link…** below the editor. The **Projects** menu can reopen that file or link and return to the last sheet in its stack. The **Help → Projects** tab has examples to try.
 
@@ -64,12 +64,12 @@ PaperDesk runs on Windows 10 build 19041 or newer and Windows 11 (x64). Both pac
 
 | Download | Open |
 | --- | --- |
-| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.2-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
-| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.2-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
+| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.10.0-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
+| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.10.0-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
 
 Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. Press **F1** in the manager for shortcuts and stack gestures.
 
-[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.2-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
+[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.10.0-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
 
 ## Build from source
 
