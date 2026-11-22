@@ -38,7 +38,7 @@ Click the trash icon. The upper note crumples, revealing the note just beneath i
 
 ## Themes and paper
 
-Switch between Graphite, Ocean, and Clay in **Settings → Appearance**. The theme applies immediately to the manager.
+Switch between Graphite, Ocean, Clay in **Settings → Appearance**. The theme applies immediately to the manager.
 
 ![PaperDesk manager in the Ocean theme with pastel paper cards and a checklist.](media/manager-ocean.png)
 
