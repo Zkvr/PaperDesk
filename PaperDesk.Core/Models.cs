@@ -47,6 +47,9 @@ public record Placement
 public record DesktopStack(Guid Id, string Name, double X, double Y, double Width, double Height, Guid ActiveNoteId = default)
 {
     public const int MaxNameLength = 64;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid[]? SheetOrder { get; init; }
 }
 
 public record Backup(int Version, DateTimeOffset ExportedAt, List<Note> Notes, List<Placement> Placements,

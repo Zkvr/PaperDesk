@@ -507,6 +507,13 @@ static partial class UiChecks
                 desk.Store.GetPlacement(deleted.Id).StackId == stack && window.NoteId == deleted.Id,
                 "A card dropped onto a stack must join that same stack");
             Require(!desk.StackCard(deleted.Id, window), "Dropping a card on itself must not change its stack");
+            Require(desk.StackNotes(stack).Select(note => note.Id).SequenceEqual(new[] { deleted.Id, created, active.Id }),
+                "Each newly dropped card must physically go above the whole stack");
+            desk.MoveStack(deleted.Id, 1);
+            Require(window.NoteId == created, "The next sheet must be the previous top, rather than the oldest note");
+            desk.MoveStack(created, -1);
+            Require(window.NoteId == deleted.Id, "Turning back must return to the new top");
+
 
             ((Button)window.FindName("HideButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Require(desk.Store.Find(deleted.Id)?.Note is { DeletedAt: null, ArchivedAt: null } &&

@@ -687,7 +687,11 @@ public sealed class NoteStore : INoteStore, IDisposable
                 PutImage(image with { NoteId = id, Id = Guid.NewGuid() });
         foreach (var stack in (backup.Stacks ?? []).DistinctBy(s => s.Id))
             if (stack.Id != Guid.Empty || !existingStacks.Contains(Guid.Empty))
-                PutStack(stack with { Id = importedStacks[stack.Id], ActiveNoteId = importedNotes.GetValueOrDefault(stack.ActiveNoteId) });
+                PutStack(stack with
+                {
+                    Id = importedStacks[stack.Id], ActiveNoteId = importedNotes.GetValueOrDefault(stack.ActiveNoteId),
+                    SheetOrder = stack.SheetOrder?.Where(importedNotes.ContainsKey).Select(id => importedNotes[id]).ToArray()
+                });
         var orphanHistoryIds = new Dictionary<Guid, Guid>();
         foreach (var note in backup.RecoveryVersions ?? [])
         {

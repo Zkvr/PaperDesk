@@ -1,5 +1,9 @@
 # PaperDesk changelog
 
+## 0.9.1-beta
+
+- Put incoming notes at the top of the stack and keep that order when peeling, turning pages, or restoring backups.
+
 ## 0.9.0-beta
 
 - Keep the grabbed point under the pointer when dragging a manager card to the desktop.

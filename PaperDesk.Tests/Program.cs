@@ -464,6 +464,18 @@ var tests = new (string Name, Action Run)[]
         Equal(new Placement().Font, s.GetPlacement(imported.Id).Font);
         Equal(new Placement().X, s.GetPlacement(imported.Id).X);
     })),
+    ("Backup import remaps the physical stack order", () => WithStore(s => {
+        var first = new Note { Body = "Previously on top" };
+        var incoming = new Note { Body = "Just dropped" };
+        var stack = new DesktopStack(Guid.NewGuid(), "Weekend", 140, 140, 310, 330, incoming.Id)
+            { SheetOrder = [incoming.Id, first.Id] };
+        s.Import(Json.Write(new Backup(1, DateTimeOffset.UtcNow, [first, incoming],
+            [new Placement { NoteId = first.Id, StackId = stack.Id }, new Placement { NoteId = incoming.Id, StackId = stack.Id }], [], [stack])));
+        var notes = s.All().ToDictionary(row => row.Note.Body, row => row.Note.Id);
+        var restored = s.AllStacks().Single();
+        Equal(notes[incoming.Body], restored.ActiveNoteId);
+        Equal(true, restored.SheetOrder!.SequenceEqual(new[] { notes[incoming.Body], notes[first.Body] }));
+    })),
     ("Editing a field based on stale displayed text keeps both versions", () => WithStore(s => {
         var remote = new Note { Title = "Fresh title", Body = "Fresh body", Revision = 2 };
         s.ApplyRemote(remote);

@@ -3,22 +3,44 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.0-beta"><strong>Download v0.9.0-beta</strong></a>
-  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.0-beta#whats-new">What's new</a>
+  <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.1-beta"><strong>Download the Windows preview</strong></a>
+  &nbsp;·&nbsp; <a href="https://github.com/Zkvr/PaperDesk/releases/tag/v0.9.1-beta#whats-new">What's new</a>
   &nbsp;·&nbsp; <a href="#start-writing">Quick start</a>
 </p>
 
 PaperDesk puts checklists, notes, and project stacks on your Windows desktop. It works offline without an account.
 
+## From the manager to the desktop
+
+Pick up a note card in the manager, drag it onto an open spot on the Windows desktop, and let go.
+
+<img src="media/move-to-desktop.gif" width="360" alt="The cursor drags a checklist from the manager onto the desktop.">
+
 ## Desktop notes and stacks
 
-Drag a card from the manager by any point on the paper and release it over a desktop note. The lower note stays in place as the incoming sheet settles onto it. Use the upper grip to move a whole stack. Pull the lower edge to peel off one sheet. Turn on **Snap sheets to nearby edges** in **Settings → Gestures and animation** to line up adjacent notes.
+### Put a sheet on top
 
-<p align="center">
-  <a href="https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/desktop-tour.mp4"><img src="media/desktop-tour-cover.png" width="340" alt="Watch the 33-second PaperDesk desktop tour"></a>
-</p>
+Use the upper grip to move a note. Drop it over another note or stack. The incoming sheet becomes **1 of 3** here, with the previous top sheet directly below.
 
-[Watch the 33-second desktop tour (MP4)](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/desktop-tour.mp4). Follow the cursor from the manager to the desktop, see how a sideways tug differs from pulling back toward the top, and watch the sheet settle onto a second stack before being discarded.
+<img src="media/place-on-stack.gif" width="360" alt="The yellow checklist lands above two sheets in Fieldwork.">
+
+### Peel one sheet free
+
+Grab the lower edge. A short sideways pull bends the corner while the top holds. Pull back toward the top edge to free the sheet sooner.
+
+<img src="media/peel-two-directions.gif" width="360" alt="A sideways tug lifts the corner; pulling upward peels the note free.">
+
+### Move it to another stack
+
+Carry the peeled sheet to a second stack. It becomes the first sheet there too.
+
+<img src="media/move-between-stacks.gif" width="360" alt="The cursor carries the checklist from Fieldwork to the top of Weekend.">
+
+### Discard the top sheet
+
+Click the trash icon. The upper note crumples, revealing the note just beneath it.
+
+<img src="media/discard-top-sheet.gif" width="360" alt="The yellow checklist crumples, revealing Weekend ideas.">
 
 ## Themes and paper
 
@@ -44,12 +66,12 @@ PaperDesk runs on Windows 10 build 19041 or newer and Windows 11 (x64). Both pac
 
 | Download | Open |
 | --- | --- |
-| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
-| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
+| [Installer](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.1-beta/PaperDesk-Setup-win-x64.exe) | Run setup to add PaperDesk to Windows. |
+| [Portable ZIP](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.1-beta/PaperDesk-Portable-win-x64.zip) | Extract to a writable folder and open `PaperDesk.exe`. |
 
 Use **Ctrl+Alt+N** for a new desktop note and **Ctrl+Alt+Space** to bring your notes forward. Press **F1** in the manager for shortcuts and stack gestures.
 
-[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.0-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
+[Installation and backups](docs/USER-GUIDE.md) · [SHA-256 checksums](https://github.com/Zkvr/PaperDesk/releases/download/v0.9.1-beta/SHA256SUMS.txt) · [Changelog](CHANGELOG.md)
 
 ## Build from source
 

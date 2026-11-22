@@ -318,13 +318,16 @@ public sealed class DeskController : IDisposable
     private DesktopStack StackForDrop(StickyWindow target, Guid topNoteId, List<Placement> placements, Guid? movingStack = null)
     {
         target.Flush();
+        Guid[] front = movingStack is Guid sourceGroup ? FromFace(sourceGroup, topNoteId) : [topNoteId];
+        Guid[] back = target.StackId is Guid targetGroup ? FromFace(targetGroup, target.NoteId) : [target.NoteId];
+        var order = front.Concat(back).Distinct().ToArray();
         if ((target.StackId ?? movingStack) is Guid existing)
         {
             if (target.StackId == null)
                 placements.Add(Store.GetPlacement(target.NoteId) with { StackId = existing });
             return Stack(existing) with
             {
-                ActiveNoteId = topNoteId, X = target.Left, Y = target.Top, Width = target.Width, Height = target.Height
+                ActiveNoteId = topNoteId, SheetOrder = order, X = target.Left, Y = target.Top, Width = target.Width, Height = target.Height
             };
         }
 
@@ -334,7 +337,7 @@ public sealed class DeskController : IDisposable
         while (names.Contains(L.F("Стопка {0}", number))) number++;
         placements.Add(Store.GetPlacement(target.NoteId) with { StackId = group });
         return new DesktopStack(group, L.F("Стопка {0}", number), target.Left, target.Top,
-            target.Width, target.Height, topNoteId);
+            target.Width, target.Height, topNoteId) { SheetOrder = order };
     }
 
     private Guid? SurfaceStack(Placement p) => Settings.StackedNotes ? p.StackId : null;
@@ -353,7 +356,29 @@ public sealed class DeskController : IDisposable
                 yield return (note, p);
     }
     public IReadOnlyList<Note> StackNotes(Guid stackId) =>
-        NoteStack.Order(VisibleNotes().Where(row => row.Placement.StackId == stackId).Select(row => row.Note));
+        OrderStack(stackId, VisibleNotes().Where(row => row.Placement.StackId == stackId).Select(row => row.Note));
+
+    private IReadOnlyList<Note> OrderStack(Guid stackId, IEnumerable<Note> notes)
+    {
+        var byDate = NoteStack.Order(notes);
+        if (Stack(stackId).SheetOrder is not { Length: > 0 } order) return byDate;
+        var remaining = byDate.ToDictionary(note => note.Id);
+        var ordered = new List<Note>(byDate.Count);
+        foreach (var id in order)
+            if (remaining.Remove(id, out var note)) ordered.Add(note);
+        ordered.AddRange(byDate.Where(note => remaining.ContainsKey(note.Id)));
+        return ordered;
+    }
+
+    private Guid[] FromFace(Guid group, Guid face)
+    {
+        var placements = Store.AllPlacements();
+        var ordered = OrderStack(group, Store.All()
+            .Where(row => placements.GetValueOrDefault(row.Note.Id)?.StackId == group)
+            .Select(row => row.Note)).Select(note => note.Id).ToArray();
+        var start = Array.IndexOf(ordered, face);
+        return start < 0 ? [face, .. ordered] : [.. ordered.Skip(start), .. ordered.Take(start)];
+    }
 
     internal void BeginSheetDrag(StickyWindow source, bool peel)
     {
@@ -362,7 +387,7 @@ public sealed class DeskController : IDisposable
         if (!peel || source.StackId is not Guid group) return;
         var notes = StackNotes(group);
         if (notes.Count < 2) return;
-        var next = NoteStack.Next(notes, source.NoteId, 1);
+        var next = NoteStack.NextInOrder(notes, source.NoteId, 1);
         var under = new StickyWindow(this, next, animateOpening: false)
         {
             ShowActivated = false,
@@ -538,13 +563,15 @@ public sealed class DeskController : IDisposable
             }
             placements.Add(p with { Visible = true, StackId = target });
         }
-        Store.SavePlacements(placements);
         if (target is Guid group)
         {
+            var destination = Stack(group);
+            var order = notes.Concat(FromFace(group, destination.ActiveNoteId)).Where(id => id != Guid.Empty).Distinct().ToArray();
+            Store.SavePlacements(placements, destination with { ActiveNoteId = notes[0], SheetOrder = order });
             minimizedStacks.Remove(group);
             UpdateSummonLabel();
-            SelectTop(group, notes[0]);
         }
+        else Store.SavePlacements(placements);
         ReconcileWindows();
     }
 
@@ -596,7 +623,7 @@ public sealed class DeskController : IDisposable
     public void MoveStack(Guid active, int direction)
     {
         if (SurfaceStack(active) is not Guid group || Stack(group).ActiveNoteId != active) return;
-        TurnTo(group, NoteStack.Next(StackNotes(group), active, direction), Math.Sign(direction));
+        TurnTo(group, NoteStack.NextInOrder(StackNotes(group), active, direction), Math.Sign(direction));
     }
 
     public void SelectStackNote(Guid id)
@@ -662,7 +689,7 @@ public sealed class DeskController : IDisposable
         if (note == null || (action == "trash" && note.DeletedAt != null)) return;
         var stackId = window?.StackId;
         var successor = stackId is Guid group && Stack(group).ActiveNoteId == id && action == "trash"
-            ? NoteStack.Next(StackNotes(group), id, 1) : Guid.Empty;
+            ? NoteStack.NextInOrder(StackNotes(group), id, 1) : Guid.Empty;
         if (successor == id) successor = Guid.Empty;
         var changed = Store.ChangeStates([id], action);
         if (changed.Count == 0) return;
@@ -796,7 +823,7 @@ public sealed class DeskController : IDisposable
         var groups = VisibleNotes().ToLookup(row => SurfaceStack(row.Placement), row => row.Note);
         var loose = groups[null].Select(note => note.Id).ToHashSet();
         var groupedNotes = groups.Where(group => group.Key.HasValue)
-            .ToDictionary(group => group.Key!.Value, group => NoteStack.Order(group));
+            .ToDictionary(group => group.Key!.Value, group => OrderStack(group.Key!.Value, group));
         var moved = groups.SelectMany(group => group.Select(note => (note.Id, group.Key)))
             .ToDictionary(row => row.Id, row => row.Key);
         foreach (var w in stickies.Values.ToList())

@@ -20,8 +20,15 @@ public static class NoteStack
     public static IReadOnlyList<Note> Order(IEnumerable<Note> notes) => notes.Where(n=>n.ArchivedAt==null&&n.DeletedAt==null).OrderBy(n=>n.CreatedAt).ThenBy(n=>n.Id).ToList();
     public static Guid Next(IEnumerable<Note> notes, Guid active, int direction)
     {
-        var ordered = Order(notes); if (ordered.Count==0) return Guid.Empty;
-        var index = ordered.ToList().FindIndex(x=>x.Id==active); if (index<0) return ordered[0].Id;
-        return ordered[((index+direction)%ordered.Count+ordered.Count)%ordered.Count].Id;
+        return NextInOrder(Order(notes), active, direction);
+    }
+
+    public static Guid NextInOrder(IReadOnlyList<Note> ordered, Guid active, int direction)
+    {
+        if (ordered.Count == 0) return Guid.Empty;
+        for (var i = 0; i < ordered.Count; i++)
+            if (ordered[i].Id == active)
+                return ordered[((i + direction) % ordered.Count + ordered.Count) % ordered.Count].Id;
+        return ordered[0].Id;
     }
 }
